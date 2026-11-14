@@ -1,38 +1,144 @@
 # 🍃 Sistema IoT de Monitoreo Ambiental Comunitario (CUCEI - UdeG)
 
-> **Sprint 1: Diseño Conceptual e Infraestructura Base**  
-> Prototipo de bajo costo para el monitoreo en tiempo real de la calidad del aire y variables ambientales en entornos escolares y comunitarios de la Zona Metropolitana de Guadalajara.
+> **Materia:** Internet de las Cosas – 26B  
+> **Equipo 3 - Agencia:** Sociedad Civil / Colectivo  
+> **Integrantes:**  
+> - **Líder de Proyecto:** Axel Guillermo Martínez Martínez (220450053)  
+> - Camila Suárez Cruz (223992426)  
+> - Ángel Miguel Villalvazo Vázquez (220653671)  
+> - Víctor Abraham Ibarra Orozco (218026295)  
+> - Gustavo Alejandro Bonilla Delgado (217225359)  
+> 
+> **Profesora:** MC. Nayeli Areli Pérez Padilla  
 
 ---
 
-##  Descripción del Proyecto
+## 📌 Descripción del Proyecto
 
-Este sistema IoT busca brindar transparencia y accesibilidad a los datos de calidad del aire para la sociedad civil, líderes comunitarios y centros educativos. A través de una arquitectura de tres capas y un semáforo visual intuitivo, permite a la población tomar decisiones preventivas ante eventos de contaminación sin depender de lecturas técnicas complejas.
+Prototipo IoT de bajo costo y alta precisión para la medición en tiempo real de la calidad del aire y confort microclimático en entornos escolares y comunitarios de la Zona Metropolitana de Guadalajara. El sistema procesa contaminantes atmosféricos normados, calcula el nivel de riesgo conforme a la **NOM-172-SEMARNAT-2023** (Índice AIRE Y SALUD), muestra el alertamiento en hardware físico local y transmite la telemetría a una aplicación móvil vía **MQTT**.
 
 ---
 
-##  Arquitectura del Sistema (Modelo de 3 Capas)
-
-El sistema se estructura bajo el modelo arquitectónico de Internet de las Cosas (IoT) integrando los 4 pilares del Internet del Todo (IdT):
+## 🏗️ Arquitectura del Sistema (Modelo de 3 Capas)
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        1. CAPA DE PERCEPCIÓN                           │
-│  • Microcontrolador: ESP32 NodeMCU                                     │
-│  • Sensores: PMS5003 (PM2.5), MQ-7 (Gases/CO), DHT22 (Temp/Humedad)     │
+│  • Microcontrolador: ESP32 DevKit (30 pines)                           │
+│  • PM2.5 / Partículas: Plantower PMS5003 (Láser óptico vía UART2)      │
+│  • Monóxido de Carbono: MQ-7 (Sensor electroquímico vía ADC G34)       │
+│  • Microclima: DHT22 (Temperatura y Humedad vía GPIO 4)                 │
+│  • Salidas Físicas: Semáforo LED 3 colores (G12, G14, G27) + LCD 1602  │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
-                                    ▼ [Envío de JSON cada 10-30s / Wi-Fi]
+                                    ▼ [Publicación JSON cada 2s vía TCP / Wi-Fi]
 ┌────────────────────────────────────────────────────────────────────────┐
-│                          2. CAPA DE RED                                │
-│  • Conectividad: Wi-Fi integrado en ESP32 con protocolo HTTP/MQTT      │
-│  • Tolerancia a Fallas: Buffer local en memoria Flash (LittleFS)        │
+│                    2. CAPA DE RED Y TRANSPORTE                         │
+│  • Enlace: Wi-Fi 802.11 b/g/n (Configuración con WiFiManager)          │
+│  • Transporte: TCP (Puerto 1883 para ESP32, Puerto 8884 WebSockets)    │
+│  • Protocolo de Aplicación: MQTT (Broker broker.hivemq.com)            │
+│  • Tópico de Difusión: "colectivo/aire/nodo1"                          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
-                                    ▼ [Procesamiento & Alertamiento]
+                                    ▼ [Suscripción en Tiempo Real]
 ┌────────────────────────────────────────────────────────────────────────┐
 │                       3. CAPA DE APLICACIÓN                            │
-│  • Interfaz Web/Móvil: Semáforo visual de 3 niveles (Verde/Amarillo/Rojo)│
-│  • Alertas Push: Notificaciones prioritarias para escuelas/directivos  │
-│  • Panel Admin: Calibración de umbrales normados (NOM-020-SSA1/SINAICA) │
+│  • App Móvil Multiplataforma: React Native + Expo Router + TypeScript  │
+│  • Cliente MQTT: Suscripción por WebSockets (telemetría en vivo)       │
+│  • Semáforo Normativo: 5 Niveles NOM-172 con fondo dinámico adaptativo │
+│  • Tendencias y Gráficas: Historial de últimas horas en SVG            │
+│  • Alertas Push: Notificaciones prioritarias para centros escolares    │
 └────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📐 Asignación de Pines y Hardware (ESP32)
+
+| Componente | Pin ESP32 | Tipo de Interfaz | Función |
+| :--- | :---: | :---: | :--- |
+| **PMS5003 (TX)** | **GPIO 17 (RX2)** | UART Serial (9600 baud) | Lectura de masa de partículas PM2.5 |
+| **PMS5003 (RX)** | **GPIO 16 (TX2)** | UART Serial (9600 baud) | Control y comandos del sensor |
+| **MQ-7 (A0)** | **GPIO 34** | Analógica (ADC1) | Concentración de gas CO en PPM |
+| **DHT22 (DATA)** | **GPIO 4** | Digital (Single-bus) | Temperatura (°C) y Humedad Relativa (%) |
+| **LED Verde** | **GPIO 12** | Digital Output | Nivel Buena (Calidad óptima) |
+| **LED Amarillo** | **GPIO 14** | Digital Output | Nivel Aceptable / Alerta moderada |
+| **LED Rojo** | **GPIO 27** | Digital Output | Nivel Mala / Muy Mala / Extrema (Parpadeo) |
+| **LCD 1602 I2C** | **GPIO 21 (SDA) / 22 (SCL)** | I2C (Dir 0x27) | Despliegue en vivo: `T:25C H:48%` y `P:0 C:0.4 BUENA` |
+
+---
+
+## 📊 Norma Oficial Mexicana: NOM-172-SEMARNAT-2023
+
+El sistema clasifica la calidad del aire aplicando el principio del contaminante dominante entre **PM2.5** y **CO**:
+
+| Nivel de Calidad | PM2.5 ($\mu g/m^3$) | CO ($PPM$) | Semáforo LED | Color de Fondo en App |
+| :--- | :---: | :---: | :---: | :---: |
+| **Buena** | $0.0 - 15.0$ | $0.0 - 5.0$ | Verde Fijo | Verde Suave (`#E7F1E5`) |
+| **Aceptable** | $15.1 - 25.0$ | $5.1 - 9.0$ | Amarillo Fijo | Amarillo Suave (`#FBF3DC`) |
+| **Mala** | $25.1 - 79.0$ | $9.1 - 12.0$ | Amarillo + Rojo | Naranja Suave (`#FDEEDF`) |
+| **Muy Mala** | $79.1 - 130.0$ | $12.1 - 16.0$ | Rojo Fijo | Rojo Suave (`#FDE5DE`) |
+| **Extremadamente Mala** | $> 130.0$ | $> 16.0$ | Rojo Parpadeante | Morado Suave (`#F5E6F4`) |
+
+> **Compensación Higroscópica:** Conforme a la literatura técnica, si la humedad relativa supera el $70\%$, el ESP32 aplica un factor correctivo de $0.85$ sobre el sensor óptico láser para evitar lecturas infladas por vapor de agua condensado.
+
+---
+
+## 📁 Estructura del Repositorio
+
+```text
+26B-IOT-AirQuality-Eq3/
+├── .gitignore               # Exclusión de binarios, dependencias y cachés
+├── LICENSE                  # Licencia MIT
+├── README.md                # Documentación oficial del proyecto
+├── firmware/                # Código fuente para microcontroladores
+│   └── MiEntorno_ESP32/
+│       └── MiEntorno_ESP32.ino   # Firmware Arduino C++ con MQTT y LCD 1602
+├── app/                     # Aplicación móvil React Native (Expo)
+│   ├── assets/              # Iconos y recursos gráficos
+│   ├── src/
+│   │   ├── app/             # Rutas y vistas principales (Expo Router)
+│   │   ├── componentes/     # Componentes visuales (Semáforo, Gráficas, Hojas)
+│   │   ├── estado/          # Gestor de estado del monitor ambiental
+│   │   ├── logica/          # Algoritmos NOM-172, confort y alertas
+│   │   ├── modelos/         # Interfaces y modelos de TypeScript
+│   │   └── servicios/       # Cliente MQTT WebSockets y persistencia
+│   ├── pruebas/             # Suite de pruebas unitarias automáticas
+│   └── herramientas/        # Simulador de nodo ESP32 para pruebas de escritorio
+└── docs/                    # Evidencias académicas y documentación
+    ├── app/capturas/        # Screenshots de la interfaz móvil
+    ├── hardware/evidencias/ # Diagrama esquemático y fotos del circuito
+    └── sprints/             # Reportes técnicos oficiales (Sprints 1, 2 y 3)
+```
+
+---
+
+## 🚀 Guía de Puesta en Marcha
+
+### 1. Carga del Firmware (ESP32)
+1. Abrir `firmware/MiEntorno_ESP32/MiEntorno_ESP32.ino` en **Arduino IDE**.
+2. Instalar las siguientes librerías desde el Gestor de Bibliotecas:
+   - `WiFiManager` (por tzapu)
+   - `PubSubClient` (por Nick O'Leary)
+   - `DHT sensor library` (por Adafruit)
+   - `LiquidCrystal I2C` (por Frank de Brabander)
+3. Seleccionar la placa **ESP32 Dev Module** y el puerto COM.
+4. Compilar y subir el programa.
+5. Si no hay red guardada, conectarse con un celular a la red Wi-Fi `ESP32_Aire_Config` para ingresar el SSID y contraseña del módem local.
+
+### 2. Ejecución de la Aplicación Móvil
+```bash
+# Entrar a la carpeta de la aplicación
+cd app
+
+# Instalar dependencias
+npm install
+
+# Correr suite de pruebas unitarias (11 tests automáticos)
+npm test
+
+# Iniciar el entorno de desarrollo
+npm start
+```
+- Presiona `w` para abrir en navegador web.
+- O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS.
