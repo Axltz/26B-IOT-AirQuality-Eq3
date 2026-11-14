@@ -354,15 +354,12 @@ function Opciones({
   );
 }
 
-const EJEMPLO = `{
-  "temperatura": 24.1,
-  "humedad": 58,
-  "pm25": 8.4,
-  "pm10": 15,
-  "co2": 612,
-  "co": 0.3,
-  "cov": 0.18,
-  "no2": 14
+const EJEMPLO_MQTT = `{
+  "pm25": 12.0,
+  "co": 0.35,
+  "temp": 24.5,
+  "hum": 52.0,
+  "estado": "BUENA"
 }`;
 
 function GuiaEsp32() {
@@ -370,24 +367,24 @@ function GuiaEsp32() {
   return (
     <Tarjeta radio={16}>
       <T t={11} c={Paleta.textoSuave} style={{ lineHeight: 17 }}>
-        1. Conecta el ESP32 y el teléfono a la misma red Wi-Fi.{'\n'}
-        2. Carga el programa de la carpeta esp32/ del proyecto; en el Monitor Serie verás su IP.{'\n'}
-        3. Toca "Agregar ESP32", escribe esa IP y prueba la conexión.
+        1. El ESP32 se conecta a Wi-Fi mediante WiFiManager.{'\n'}
+        2. Transmite en tiempo real al Broker MQTT público (broker.hivemq.com:1883).{'\n'}
+        3. Esta App se suscribe al tópico mediante WebSockets (puerto 8884).
       </T>
       <T t={11} f="negrita" style={{ marginTop: 12, marginBottom: 6 }}>
-        La app consulta:
+        Tópico MQTT de Telemetría:
       </T>
       <View style={estilos.codigo}>
         <T selectable t={11} style={{ fontFamily: mono }}>
-          GET http://&lt;IP-del-ESP32&gt;/api/lecturas
+          colectivo/aire/nodo1
         </T>
       </View>
       <T t={11} c={Paleta.textoSuave} style={{ marginTop: 8, marginBottom: 6, lineHeight: 17 }}>
-        y espera un JSON como este (los campos que falten se muestran como "—"):
+        Payload JSON recibido en vivo:
       </T>
       <View style={estilos.codigo}>
         <T selectable t={11} style={{ fontFamily: mono, lineHeight: 16 }}>
-          {EJEMPLO}
+          {EJEMPLO_MQTT}
         </T>
       </View>
     </Tarjeta>

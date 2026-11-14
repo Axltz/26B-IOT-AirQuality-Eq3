@@ -28,16 +28,16 @@ export interface Ajustes {
 }
 
 export const DISPOSITIVO_DEMO: Dispositivo = {
-  id: 'demo',
-  nombre: 'Casa',
-  direccion: '',
-  demo: true,
+  id: 'nodo1',
+  nombre: 'ESP32 Comunitario (Nodo 1)',
+  direccion: 'broker.hivemq.com',
+  demo: false,
 };
 
 export function ajustesPorDefecto(): Ajustes {
   return {
     dispositivos: [DISPOSITIVO_DEMO],
-    activoId: 'demo',
+    activoId: 'nodo1',
     alertasActivas: true,
     umbralNivel: 2,
     avisarMejora: true,

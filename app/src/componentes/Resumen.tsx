@@ -55,11 +55,27 @@ export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
       <Principal />
       <FilaMetricas />
       {m.metrica === 'aire' ? <AnalisisAire /> : null}
+      <TarjetaNormativa />
       <TarjetaGrafica />
       <TarjetaAlertas />
-      <BotonSimular />
       <PieEstado alAbrirAjustes={alAbrirAjustes} />
     </ScrollView>
+  );
+}
+
+function TarjetaNormativa() {
+  return (
+    <Tarjeta radio={16} fondo={Paleta.superficie}>
+      <View style={estilos.filaCentro}>
+        <Icono nombre="information-outline" tam={18} color={Paleta.verde} />
+        <T t={12} f="extra" style={{ marginLeft: 6 }}>
+          Criterio Normativo NOM-172-SEMARNAT-2023
+        </T>
+      </View>
+      <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 6, lineHeight: 16 }}>
+        La norma oficial exige evaluar promedios móviles (12 h para partículas PM2.5 y 8 h para monóxido de carbono). En este prototipo se aplican umbrales instantáneos validados para respuesta inmediata y alertamiento en tiempo real ante eventos críticos.
+      </T>
+    </Tarjeta>
   );
 }
 
@@ -420,25 +436,7 @@ function TarjetaAlertas() {
 }
 
 function BotonSimular() {
-  const m = useMonitor();
-  const toast = useToast();
-  return (
-    <Pressable
-      disabled={m.simulando}
-      accessibilityRole="button"
-      onPress={async () => {
-        const permiso = await m.simularAlerta();
-        if (!permiso) {
-          toast('Alerta simulada. Para verla también como notificación, permite las notificaciones de la app.');
-        }
-      }}
-      style={({ pressed }) => [estilos.simular, { opacity: pressed ? 0.6 : 1 }]}
-    >
-      <T t={11} f="negrita" c={Paleta.textoSuave}>
-        {m.simulando ? 'Simulación en curso…' : 'Simular alerta de aire'}
-      </T>
-    </Pressable>
-  );
+  return null;
 }
 
 /** Línea de estado al pie: origen de los datos y antigüedad de la lectura. */
