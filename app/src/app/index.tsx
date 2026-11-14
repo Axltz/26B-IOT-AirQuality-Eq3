@@ -21,8 +21,10 @@ export default function Inicio() {
     router.push('/ajustes');
   };
 
+  const fondoDinamico = m.aire?.nivel?.colorSuave ?? Paleta.fondo;
+
   return (
-    <View style={[estilos.pantalla, { paddingTop: insets.top }]}>
+    <View style={[estilos.pantalla, { paddingTop: insets.top, backgroundColor: fondoDinamico }]}>
       <View style={estilos.marco}>
         {!m.cargado ? (
           <ActivityIndicator style={{ flex: 1 }} color={Paleta.verde} />

@@ -21,6 +21,11 @@ import {
   registrarPushEsp32,
 } from '../servicios/clienteEsp32';
 import {
+  detenerClienteMqtt,
+  iniciarClienteMqtt,
+  obtenerUltimaLecturaMqtt,
+} from '../servicios/clienteMqtt';
+import {
   abiertaDesdeNotificacion,
   escucharToques,
   iniciarNotificaciones,
@@ -141,12 +146,27 @@ export class Monitor {
     this.cargado = true;
     this.avisarCambios();
     this.programarSondeo();
+
+    // Iniciar cliente MQTT en tiempo real hacia el broker de HiveMQ
+    iniciarClienteMqtt('wss://broker.hivemq.com:8884/mqtt', 'colectivo/aire/nodo1', (nueva) => {
+      if (!this.dispositivo.demo) {
+        this.lecturaReal = nueva;
+        this.conexion = 'enLinea';
+        this.error = null;
+        this.ultimaActualizacion = nueva.fecha;
+        this.registrar(nueva);
+        void this.evaluar();
+        this.avisarCambios();
+      }
+    });
+
     await this.actualizar(true);
   }
 
   detener() {
     if (this.sondeo) clearInterval(this.sondeo);
     if (this.finSimulacion) clearTimeout(this.finSimulacion);
+    detenerClienteMqtt();
     this.limpiezas.forEach((fn) => fn());
     this.limpiezas = [];
   }
@@ -180,9 +200,14 @@ export class Monitor {
       if (d.demo) {
         nueva = lecturaSimulada(Date.now());
       } else {
-        const url = normalizarDireccion(d.direccion);
-        if (traerHistorial) await this.traerHistorialEsp32(d, url);
-        nueva = await leerEsp32(url);
+        const mqttLectura = obtenerUltimaLecturaMqtt();
+        if (mqttLectura && Date.now() - mqttLectura.fecha < 10000) {
+          nueva = mqttLectura;
+        } else {
+          const url = normalizarDireccion(d.direccion);
+          if (traerHistorial) await this.traerHistorialEsp32(d, url);
+          nueva = await leerEsp32(url);
+        }
       }
       if (d.id !== this.dispositivo.id) return; // cambió de dispositivo a medio camino
       this.lecturaReal = nueva;

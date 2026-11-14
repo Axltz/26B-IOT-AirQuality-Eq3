@@ -312,17 +312,15 @@ function AnalisisAire() {
       <View style={estilos.separador} />
       <View style={estilos.filaCentro}>
         <T t={12} f="negrita" style={{ flex: 1 }}>
-          Gases detectados
+          Gases y sensores
         </T>
         <T t={10} c={Paleta.textoTenue}>
-          {m.simulando ? 'Simulación' : 'Lectura actual'}
+          {m.simulando ? 'Simulación' : 'MQ-7 Electroquímico'}
         </T>
       </View>
-      <View style={[estilos.filaMetricas, { gap: 6, marginTop: 10 }]}>
-        <Gas nombre="CO2" valor={numero(l?.co2)} unidad="ppm" />
-        <Gas nombre="CO" valor={numero(l?.co, 1)} unidad="ppm" color={colorCo} />
-        <Gas nombre="COV" valor={numero(l?.cov, 2)} unidad="ppm" />
-        <Gas nombre="NO2" valor={numero(l?.no2)} unidad="ppb" />
+      <View style={[estilos.filaMetricas, { gap: 10, marginTop: 10 }]}>
+        <Gas nombre="Monóxido de Carbono (CO)" valor={numero(l?.co, 2)} unidad="ppm" color={colorCo} />
+        {l?.co2 !== undefined ? <Gas nombre="CO2" valor={numero(l?.co2)} unidad="ppm" /> : null}
       </View>
     </Tarjeta>
   );
