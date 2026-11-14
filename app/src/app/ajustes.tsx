@@ -16,6 +16,7 @@ import {
 } from '../componentes/comunes';
 import { FilaDispositivo, FormularioDispositivo, Hoja } from '../componentes/Hojas';
 import { useMonitor } from '../estado/monitor';
+import { useAuth } from '../context/AuthContext';
 import { nivel } from '../logica/calidadAire';
 import type { Dispositivo } from '../modelos/ajustes';
 import { estadoPush } from '../servicios/notificaciones';
@@ -30,6 +31,7 @@ export default function Ajustes() {
   const [formulario, setFormulario] = useState(false);
   const [confirmar, setConfirmar] = useState<null | { titulo: string; texto: string; accion: () => Promise<void> }>(null);
   const [activandoPush, setActivandoPush] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   const editar = (d: Dispositivo | null) => {
     setEditando(d);
@@ -99,12 +101,19 @@ export default function Ajustes() {
                 <View style={estilos.linea} />
               </View>
             ))}
-            <Pressable onPress={() => editar(null)} style={estilos.agregar} accessibilityRole="button">
-              <Icono nombre="plus" tam={20} color={Paleta.verde} />
-              <T t={13} f="extra" c={Paleta.verde}>
-                Agregar ESP32
-              </T>
+            {/* Botón oculto de admin */}
+            <Pressable onPress={() => setShowAdminLogin(true)} style={estilos.agregar} accessibilityRole="button">
+              <Icono nombre="shield-account" tam={20} color={Paleta.verde} />
+              <T t={13} f="extra" c={Paleta.verde}>Panel de admin</T>
             </Pressable>
+            {/* Mostrar botón Agregar ESP32 solo si es admin */}
+            {useAuth().isAdmin && (
+              <Pressable onPress={() => editar(null)} style={estilos.agregar} accessibilityRole="button">
+                <Icono nombre="plus" tam={20} color={Paleta.verde} />
+                <T t={13} f="extra" c={Paleta.verde}>Agregar ESP32</T>
+              </Pressable>
+            )}
+            <AdminLoginModal visible={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
           </Tarjeta>
         </Seccion>
 
