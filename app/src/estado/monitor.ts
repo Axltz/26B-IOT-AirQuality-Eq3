@@ -132,35 +132,48 @@ export class Monitor {
   async iniciar() {
     if (this.iniciado) return;
     this.iniciado = true;
-    await iniciarNotificaciones();
-    this.limpiezas.push(escucharToques(() => this.mostrarVista('notificacion')));
+    try {
+      await iniciarNotificaciones();
+      this.limpiezas.push(escucharToques(() => this.mostrarVista('notificacion')));
+    } catch (e) {
+      console.warn('Error inicializando notificaciones en móvil:', e);
+    }
     const sub = AppState.addEventListener('change', (estado) => {
       if (estado === 'active') void this.actualizar(true);
       else if (estado === 'background') void this.guardarHistorial();
     });
     this.limpiezas.push(() => sub.remove());
 
-    this.ajustes = await almacen.cargarAjustes();
-    await this.prepararDispositivo();
-    if (abiertaDesdeNotificacion() && this.alerta) this.vista = 'notificacion';
-    this.cargado = true;
-    this.avisarCambios();
+    try {
+      this.ajustes = await almacen.cargarAjustes();
+      await this.prepararDispositivo();
+      if (abiertaDesdeNotificacion() && this.alerta) this.vista = 'notificacion';
+    } catch (e) {
+      console.warn('Error cargando almacenamiento:', e);
+    } finally {
+      this.cargado = true;
+      this.avisarCambios();
+    }
     this.programarSondeo();
 
     // Iniciar cliente MQTT en tiempo real hacia el broker de HiveMQ
-    iniciarClienteMqtt('wss://broker.hivemq.com:8884/mqtt', 'colectivo/aire/nodo1', (nueva) => {
-      if (!this.dispositivo.demo) {
-        this.lecturaReal = nueva;
-        this.conexion = 'enLinea';
-        this.error = null;
-        this.ultimaActualizacion = nueva.fecha;
-        this.registrar(nueva);
-        void this.evaluar();
-        this.avisarCambios();
-      }
-    });
+    try {
+      iniciarClienteMqtt('wss://broker.hivemq.com:8884/mqtt', 'colectivo/aire/nodo1', (nueva) => {
+        if (!this.dispositivo.demo) {
+          this.lecturaReal = nueva;
+          this.conexion = 'enLinea';
+          this.error = null;
+          this.ultimaActualizacion = nueva.fecha;
+          this.registrar(nueva);
+          void this.evaluar();
+          this.avisarCambios();
+        }
+      });
+    } catch (e) {
+      console.warn('Error iniciando cliente MQTT:', e);
+    }
 
-    await this.actualizar(true);
+    void this.actualizar(true);
   }
 
   detener() {
@@ -201,12 +214,17 @@ export class Monitor {
         nueva = lecturaSimulada(Date.now());
       } else {
         const mqttLectura = obtenerUltimaLecturaMqtt();
-        if (mqttLectura && Date.now() - mqttLectura.fecha < 10000) {
+        // Si hay telemetría viva por MQTT en los últimos 15 segundos
+        if (mqttLectura && Date.now() - mqttLectura.fecha < 15000) {
           nueva = mqttLectura;
-        } else {
+        } else if (d.direccion && d.direccion !== 'broker.hivemq.com') {
+          // Si tiene configurada una IP local HTTP específica
           const url = normalizarDireccion(d.direccion);
           if (traerHistorial) await this.traerHistorialEsp32(d, url);
           nueva = await leerEsp32(url);
+        } else {
+          // Esperando telemetría MQTT del ESP32 real
+          throw new Error('Esperando datos del ESP32 vía MQTT en colectivo/aire/nodo1. Verifica que el nodo esté encendido.');
         }
       }
       if (d.id !== this.dispositivo.id) return; // cambió de dispositivo a medio camino
@@ -410,6 +428,10 @@ export class Monitor {
   fijarIntervalo = async (segundos: number) => {
     await this.guardarAjustes({ ...this.ajustes, intervaloSeg: segundos });
     this.programarSondeo();
+  };
+
+  fijarGrupoVulnerable = async (grupoId: string) => {
+    await this.guardarAjustes({ ...this.ajustes, grupoVulnerable: grupoId });
   };
 
   cambiarDispositivo = async (id: string) => {
