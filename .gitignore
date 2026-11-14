@@ -41,3 +41,6 @@ Thumbs.db
 Desktop.ini
 *.tmp
 
+# Documento interno de cambios (excluido de Git)
+RESUMEN_PROYECTO_CAMBIOS.md
+
