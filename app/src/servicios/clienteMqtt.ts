@@ -94,3 +94,4 @@ export function obtenerUltimaLecturaMqtt(): Lectura | null {
 export function estadoMqtt(): string {
   return estadoConexionMqtt;
 }
+

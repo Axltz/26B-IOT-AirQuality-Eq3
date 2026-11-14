@@ -197,19 +197,15 @@ void loop() {
 
   client.publish("colectivo/aire/nodo1", payload.c_str());
 
-  // 9. Mostrar datos en el LCD 1602 de forma limpia (16 caracteres por línea)
+  // 9. Mostrar datos en el LCD 1602 de forma limpia (16 caracteres exactos por línea)
   String linea1 = "T:" + tempStr + "C H:" + humStr + "%";
   while (linea1.length() < 16) linea1 += " ";
   lcd.setCursor(0, 0);
   lcd.print(linea1);
 
-  // PM2.5 en vez de P: (ej: "PM2.5:12 C:0.4 B")
-  String linea2 = "PM2.5:" + String((int)pm25_compensado) + " C:" + String(ppmCO, 1) + " " + estadoCalidad;
-  if (linea2.length() > 16) {
-    linea2 = linea2.substring(0, 16);
-  } else {
-    while (linea2.length() < 16) linea2 += " ";
-  }
+  // Exactamente como en la foto de prueba: "P:0 C:0.4 BUENA" (15 caracteres, cabe perfecto)
+  String linea2 = "P:" + String((int)pm25_compensado) + " C:" + String(ppmCO, 1) + " " + estadoCalidad;
+  while (linea2.length() < 16) linea2 += " ";
   lcd.setCursor(0, 1);
   lcd.print(linea2);
 
