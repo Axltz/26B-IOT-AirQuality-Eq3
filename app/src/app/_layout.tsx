@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ProveedorToast } from '../componentes/comunes';
+import { ProveedorAdmin } from '../estado/admin';
 import { ContextoMonitor, Monitor } from '../estado/monitor';
 import { Paleta } from '../tema';
 
@@ -33,12 +34,14 @@ export default function Raiz() {
 
   return (
     <SafeAreaProvider>
-      <ContextoMonitor.Provider value={monitor}>
-        <ProveedorToast>
-          <StatusBar style="dark" />
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Paleta.fondo } }} />
-        </ProveedorToast>
-      </ContextoMonitor.Provider>
+      <ProveedorAdmin>
+        <ContextoMonitor.Provider value={monitor}>
+          <ProveedorToast>
+            <StatusBar style="dark" />
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Paleta.fondo } }} />
+          </ProveedorToast>
+        </ContextoMonitor.Provider>
+      </ProveedorAdmin>
     </SafeAreaProvider>
   );
 }

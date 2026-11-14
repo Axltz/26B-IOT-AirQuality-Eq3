@@ -15,8 +15,10 @@ import {
   useToast,
 } from '../componentes/comunes';
 import { FilaDispositivo, FormularioDispositivo, Hoja } from '../componentes/Hojas';
+import { PanelAdminModal } from '../componentes/PanelAdminModal';
+import { useAdmin } from '../estado/admin';
 import { useMonitor } from '../estado/monitor';
-import { useAuth } from '../context/AuthContext';
+import { GRUPOS_VULNERABLES } from '../logica/gruposVulnerables';
 import { nivel } from '../logica/calidadAire';
 import type { Dispositivo } from '../modelos/ajustes';
 import { estadoPush } from '../servicios/notificaciones';
@@ -24,6 +26,7 @@ import { Paleta } from '../tema';
 
 export default function Ajustes() {
   const m = useMonitor();
+  const { esAdmin } = useAdmin();
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const a = m.ajustes;
@@ -31,7 +34,7 @@ export default function Ajustes() {
   const [formulario, setFormulario] = useState(false);
   const [confirmar, setConfirmar] = useState<null | { titulo: string; texto: string; accion: () => Promise<void> }>(null);
   const [activandoPush, setActivandoPush] = useState(false);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [panelAdminVisible, setPanelAdminVisible] = useState(false);
 
   const editar = (d: Dispositivo | null) => {
     setEditando(d);
@@ -81,8 +84,10 @@ export default function Ajustes() {
                       {d.id === a.activoId ? (
                         <Pastilla texto="Activo" color={Paleta.verde} fondo={Paleta.verdeSuave} />
                       ) : null}
-                      <BotonIcono icono="pencil-outline" etiqueta="Editar" alPresionar={() => editar(d)} />
-                      {a.dispositivos.length > 1 ? (
+                      {esAdmin ? (
+                        <BotonIcono icono="pencil-outline" etiqueta="Editar" alPresionar={() => editar(d)} />
+                      ) : null}
+                      {esAdmin && a.dispositivos.length > 1 ? (
                         <BotonIcono
                           icono="trash-can-outline"
                           etiqueta="Quitar"
@@ -101,68 +106,23 @@ export default function Ajustes() {
                 <View style={estilos.linea} />
               </View>
             ))}
-            {/* Botón oculto de admin */}
-            <Pressable onPress={() => setShowAdminLogin(true)} style={estilos.agregar} accessibilityRole="button">
-              <Icono nombre="shield-account" tam={20} color={Paleta.verde} />
-              <T t={13} f="extra" c={Paleta.verde}>Panel de admin</T>
-            </Pressable>
-            {/* Mostrar botón Agregar ESP32 solo si es admin */}
-            {useAuth().isAdmin && (
+            {/* Solo los administradores pueden añadir nuevos nodos de medición */}
+            {esAdmin ? (
               <Pressable onPress={() => editar(null)} style={estilos.agregar} accessibilityRole="button">
                 <Icono nombre="plus" tam={20} color={Paleta.verde} />
-                <T t={13} f="extra" c={Paleta.verde}>Agregar ESP32</T>
+                <T t={13} f="extra" c={Paleta.verde}>
+                  Agregar Estación ESP32
+                </T>
               </Pressable>
-            )}
-            <AdminLoginModal visible={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
+            ) : null}
           </Tarjeta>
         </Seccion>
 
-        <Seccion titulo="AVISOS CON LA APP CERRADA">
-          <Tarjeta radio={16}>
-            <T t={12.5} f="negrita">
-              Notificaciones push desde el ESP32
-            </T>
-            <T t={10.5} c={Paleta.textoSuave} style={estilos.parrafo}>
-              El ESP32 revisa el aire por su cuenta y te manda la notificación por internet, aunque la app esté
-              cerrada o estés fuera de casa.
-            </T>
-            {m.dispositivo.demo ? (
-              <Nota>Conecta un ESP32 para activarlas (el modo demostración no manda push).</Nota>
-            ) : m.pushActivo ? (
-              <>
-                <View style={[estilos.fila, { marginTop: 12 }]}>
-                  <Icono nombre="check-circle" tam={18} color={Paleta.verde} />
-                  <T t={11.5} f="negrita" c={Paleta.verde} style={{ flex: 1 }}>
-                    Activas en {m.dispositivo.nombre}
-                  </T>
-                </View>
-                <View style={{ marginTop: 10 }}>
-                  <BotonSecundario
-                    texto="Desactivar en este ESP32"
-                    icono="bell-off-outline"
-                    alPresionar={() => void m.desactivarPush()}
-                  />
-                </View>
-              </>
-            ) : !push.disponible ? (
-              <Nota>{push.motivo}</Nota>
-            ) : (
-              <View style={{ marginTop: 12 }}>
-                <BotonPrincipal
-                  texto={activandoPush ? 'Activando…' : `Activar en ${m.dispositivo.nombre}`}
-                  alPresionar={activarPush}
-                  deshabilitado={activandoPush}
-                />
-              </View>
-            )}
-          </Tarjeta>
-        </Seccion>
-
-        <Seccion titulo="ALERTAS">
+        <Seccion titulo="ALERTAS Y GRUPOS VULNERABLES (NOM-172)">
           <Tarjeta radio={16}>
             <FilaInterruptor
               titulo="Alertas de calidad del aire"
-              detalle="Notificar cuando el aire empeore."
+              detalle="Notificar prioritariamente cuando el aire empeore."
               valor={a.alertasActivas}
               alCambiar={(v) => void m.fijarAlertasActivas(v)}
             />
@@ -173,6 +133,49 @@ export default function Ajustes() {
               valor={a.avisarMejora}
               alCambiar={(v) => void m.fijarAvisarMejora(v)}
             />
+
+            <T t={12.5} f="negrita" style={{ marginTop: 16, marginBottom: 4 }}>
+              Población Sensible / Grupo Vulnerable
+            </T>
+            <T t={10.5} c={Paleta.textoSuave} style={{ marginBottom: 10 }}>
+              Selecciona tu perfil para aplicar los umbrales de advertencia de la NOM-172-SEMARNAT-2023:
+            </T>
+
+            {GRUPOS_VULNERABLES.map((g) => {
+              const seleccionado = (a.grupoVulnerable ?? 'ninos') === g.id;
+              return (
+                <Pressable
+                  key={g.id}
+                  onPress={() => void m.fijarGrupoVulnerable(g.id)}
+                  style={[
+                    estilos.tarjetaGrupo,
+                    seleccionado && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },
+                  ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: seleccionado }}
+                >
+                  <View style={estilos.fila}>
+                    <Icono
+                      nombre={g.icono as any}
+                      tam={22}
+                      color={seleccionado ? Paleta.verde : Paleta.textoSuave}
+                    />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <T t={12} f="extra" c={seleccionado ? Paleta.verdeOscuro : Paleta.texto}>
+                        {g.nombre}
+                      </T>
+                      <T t={10} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+                        {g.descripcion}
+                      </T>
+                    </View>
+                    {seleccionado ? (
+                      <Icono nombre="check-circle" tam={18} color={Paleta.verde} />
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+
             <T t={12.5} f="negrita" style={{ marginTop: 16, marginBottom: 8 }}>
               Avisar a partir de
             </T>
@@ -188,24 +191,7 @@ export default function Ajustes() {
             <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 8 }}>
               Se avisa cuando la calidad del aire es {nivel(a.umbralNivel).adjetivo} o peor
               ({nivel(a.umbralNivel).riesgo.toLowerCase()}, NOM-172).
-
             </T>
-          </Tarjeta>
-        </Seccion>
-
-        <Seccion titulo="TRANSMISIÓN">
-          <Tarjeta radio={16}>
-            <View style={estilos.fila}>
-              <Icono nombre="broadcast" tam={20} color={Paleta.verde} />
-              <View style={{ flex: 1 }}>
-                <T t={12.5} f="negrita">
-                  Telemetría MQTT en Tiempo Real
-                </T>
-                <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
-                  Recepción continua por WebSockets activos (sin retraso de sondeo).
-                </T>
-              </View>
-            </View>
           </Tarjeta>
         </Seccion>
 
@@ -235,14 +221,36 @@ export default function Ajustes() {
           </Tarjeta>
         </Seccion>
 
-        <Seccion titulo="CONECTAR TU ESP32">
-          <GuiaEsp32 />
+        <Seccion titulo="ADMINISTRACIÓN DEL SISTEMA">
+          <Tarjeta radio={16} style={{ padding: 0 }}>
+            <Pressable
+              style={estilos.agregar}
+              accessibilityRole="button"
+              onPress={() => setPanelAdminVisible(true)}
+            >
+              <Icono nombre="shield-account" tam={22} color={Paleta.verde} />
+              <View style={{ flex: 1 }}>
+                <T t={13} f="extra">
+                  Panel de Administradores
+                </T>
+                <T t={10.5} c={Paleta.textoSuave}>
+                  Diagnóstico de capas, reportes de fallas y alta de estaciones.
+                </T>
+              </View>
+              <Icono nombre="chevron-right" tam={20} color={Paleta.textoTenue} />
+            </Pressable>
+          </Tarjeta>
         </Seccion>
 
         <T t={10} c={Paleta.textoTenue} style={{ textAlign: 'center', marginTop: 20 }}>
-          Mi Entorno 1.0
+          Mi Entorno 1.0 · Sistema Comunitario de Calidad del Aire
         </T>
       </ScrollView>
+
+      <PanelAdminModal
+        visible={panelAdminVisible}
+        alCerrar={() => setPanelAdminVisible(false)}
+      />
 
       <FormularioDispositivo visible={formulario} existente={editando} alCerrar={() => setFormulario(false)} />
 
@@ -426,4 +434,12 @@ const estilos = StyleSheet.create({
   },
   opcion: { flex: 1, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   codigo: { backgroundColor: Paleta.relleno, borderRadius: 10, padding: 10 },
+  tarjetaGrupo: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Paleta.borde,
+    backgroundColor: Paleta.superficie,
+    marginBottom: 8,
+  },
 });
