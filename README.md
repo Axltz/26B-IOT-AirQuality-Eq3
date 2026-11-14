@@ -47,7 +47,8 @@ Prototipo IoT de bajo costo y alta precisión para la medición en tiempo real d
 │  • Cliente MQTT: Suscripción por WebSockets (telemetría en vivo)       │
 │  • Semáforo Normativo: 5 Niveles NOM-172 con fondo dinámico adaptativo │
 │  • Tendencias y Gráficas: Historial de últimas horas en SVG            │
-│  • Alertas Push: Notificaciones prioritarias para centros escolares    │
+│  • Grupos Vulnerables: Perfiles para Niños, Adultos Mayores, Asma, etc.│
+│  • Panel de Administración: Diagnóstico de capas y gestión de nodos    │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,6 +85,26 @@ El sistema clasifica la calidad del aire aplicando el principio del contaminante
 
 ---
 
+## 🛡️ Grupos Vulnerables (Población Sensible)
+
+La aplicación integra perfiles normativos para proteger a los sectores más expuestos a daños pulmonares y cardiovasculares:
+- **Niñas y Niños (< 12 años):** Menor masa corporal y vías en desarrollo; alertas tempranas para cancelar o reprogramar actividades escolares al aire libre.
+- **Adultos Mayores (60+ años):** Reducción de la reserva cardiorrespiratoria ante picos de PM2.5.
+- **Personas con Asma, EPOC o Cardiopatías:** Sensibilidad crítica ante incrementos agudos de partículas y gas CO.
+- **Personas Gestantes (Embarazo):** Protección materno-fetal contra hipoxia y toxicidad por monóxido de carbono.
+
+---
+
+## 🔒 Panel de Administración y Diagnóstico de Red
+
+Para evitar manipulaciones de usuarios comunes y garantizar un despliegue seguro en escuelas y colectivos:
+- **Acceso Exclusivo:** El panel está protegido por credenciales de administrador (cuenta root: `axelmtz9880@gmail.com`).
+- **Diagnóstico Integral de las 3 Capas:** Muestra en tiempo real el estado de salud del hardware ESP32 (sensores), el enlace con el Broker MQTT (HiveMQ) y el motor de alertas de la app.
+- **Gestión de Nodos y Estaciones:** Solo los administradores pueden dar de alta nuevas estaciones de medición comunitarias o retirar nodos defectuosos.
+- **Gestión de Roles:** Permite registrar nuevos directores de escuela o coordinadores de colectivo como administradores autorizados.
+
+---
+
 ## 📁 Estructura del Repositorio
 
 ```text
@@ -98,9 +119,9 @@ El sistema clasifica la calidad del aire aplicando el principio del contaminante
 │   ├── assets/              # Iconos y recursos gráficos
 │   ├── src/
 │   │   ├── app/             # Rutas y vistas principales (Expo Router)
-│   │   ├── componentes/     # Componentes visuales (Semáforo, Gráficas, Hojas)
-│   │   ├── estado/          # Gestor de estado del monitor ambiental
-│   │   ├── logica/          # Algoritmos NOM-172, confort y alertas
+│   │   ├── componentes/     # Componentes visuales (Semáforo, Gráficas, Panel Admin)
+│   │   ├── estado/          # Gestores de estado (Monitor ambiental y Admin)
+│   │   ├── logica/          # Algoritmos NOM-172, confort, alertas y grupos
 │   │   ├── modelos/         # Interfaces y modelos de TypeScript
 │   │   └── servicios/       # Cliente MQTT WebSockets y persistencia
 │   ├── pruebas/             # Suite de pruebas unitarias automáticas
@@ -137,8 +158,15 @@ npm install
 # Correr suite de pruebas unitarias (11 tests automáticos)
 npm test
 
-# Iniciar el entorno de desarrollo
+# Verificar tipos sin errores
+npm run typecheck
+
+# Iniciar el entorno de desarrollo Expo
 npm start
 ```
 - Presiona `w` para abrir en navegador web.
-- O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS.
+- O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS (asegúrate de que el celular esté en la misma red local que la computadora).
+
+> [!NOTE]
+> **¿Por qué Expo Go solicita inicio de sesión en móviles?**  
+> A partir de Expo SDK 50+, Expo implementó una política de seguridad estricta para sincronización local. Si en tu teléfono tienes la app **Expo Go** iniciada con una cuenta (por ejemplo `tu_usuario`), Expo CLI en tu computadora requiere que ejecutes `npx expo login` con esa misma cuenta para permitir el túnel de desarrollo. De forma alternativa, puedes cerrar sesión en la app Expo Go en tu teléfono para abrir proyectos locales en modo anónimo sin requerir login en la terminal.
