@@ -14,7 +14,8 @@
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Mi Entorno se conecta a tu ESP32 en la red Wi-Fi de tu casa para leer la temperatura, la humedad y la calidad del aire."
+        "NSLocalNetworkUsageDescription": "Mi Entorno se conecta a tu ESP32 en la red Wi-Fi de tu casa para leer la temperatura, la humedad y la calidad del aire.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -60,10 +61,15 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
       "eas": {
-        "projectId": "a916cc9a-d0fa-4b81-a299-4fdaf8e7bb87"
+        "projectId": "22e35736-81e6-4f6c-843a-75d2d527d858"
       }
     },
-    "owner": "gustavo12bonilla"
+    "owner": "axlui_9880"
   }
 }
