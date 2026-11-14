@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAdmin } from '../estado/admin';
 import { useMonitor } from '../estado/monitor';
 import { evaluarAire } from '../logica/calidadAire';
 import { descripcion, direccionValida, type Dispositivo } from '../modelos/ajustes';
@@ -86,11 +87,12 @@ export function SelectorDispositivo({
   alAbrirAjustes: () => void;
 }) {
   const m = useMonitor();
+  const { esAdmin } = useAdmin();
   return (
     <Hoja visible={visible} alCerrar={alCerrar}>
       <Etiqueta>MI ENTORNO</Etiqueta>
       <T t={18} f="extra" style={{ marginTop: 3, marginBottom: 14 }}>
-        Mis dispositivos
+        Estaciones Disponibles
       </T>
       <Tarjeta radio={16} style={{ padding: 0, overflow: 'hidden' }}>
         {m.ajustes.dispositivos.map((d, i) => (
@@ -108,9 +110,11 @@ export function SelectorDispositivo({
         ))}
       </Tarjeta>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-        <View style={{ flex: 1 }}>
-          <BotonSecundario texto="Agregar ESP32" icono="plus" alPresionar={alAgregar} />
-        </View>
+        {esAdmin ? (
+          <View style={{ flex: 1 }}>
+            <BotonSecundario texto="Agregar ESP32" icono="plus" alPresionar={alAgregar} />
+          </View>
+        ) : null}
         <View style={{ flex: 1 }}>
           <BotonSecundario texto="Ajustes" icono="tune-variant" alPresionar={alAbrirAjustes} />
         </View>

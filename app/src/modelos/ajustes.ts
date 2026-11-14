@@ -25,6 +25,8 @@ export interface Ajustes {
   avisarMejora: boolean;
   /** Cada cuántos segundos se consulta al ESP32. */
   intervaloSeg: number;
+  /** ID del grupo vulnerable suscrito (ej. 'ninos', 'adultos_mayores', 'general') */
+  grupoVulnerable?: string;
 }
 
 export const DISPOSITIVO_DEMO: Dispositivo = {
@@ -42,6 +44,7 @@ export function ajustesPorDefecto(): Ajustes {
     umbralNivel: 2,
     avisarMejora: true,
     intervaloSeg: 5,
+    grupoVulnerable: 'ninos',
   };
 }
 
@@ -106,6 +109,7 @@ export function ajustesDesdeJson(j: unknown): Ajustes {
     umbralNivel: umbralDesdeJson(o),
     avisarMejora: typeof o.avisarMejora === 'boolean' ? o.avisarMejora : true,
     intervaloSeg: Math.min(300, Math.max(1, num(o.intervaloSeg, 5))),
+    grupoVulnerable: typeof o.grupoVulnerable === 'string' ? o.grupoVulnerable : 'ninos',
   };
 }
 
