@@ -1,0 +1,42 @@
+# Node / React Native / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# Native builds (Expo prebuild / Android / iOS)
+android/
+ios/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Arduino / PlatformIO / ESP32 builds
+build/
+*.bin
+*.elf
+*.hex
+.pio/
+.vscode/
+.idea/
+.project
+.cproject
+
+# Secrets & Environment variables
+.env
+.env*.local
+*.secrets.json
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
