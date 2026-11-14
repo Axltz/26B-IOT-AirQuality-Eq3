@@ -12,7 +12,7 @@ import {
   posicionBarra,
 } from '../logica/calidadAire';
 import { etiquetaHumedad, etiquetaTemperatura, sensacionTermica } from '../logica/confort';
-import { METRICAS, extremosDeHoy, haceCuanto, puntosUltimasHoras, type Metrica } from '../logica/historial';
+import { METRICAS, extremosDeHoy, haceCuanto, promediosMovilesHoras, puntosUltimasHoras, type Metrica } from '../logica/historial';
 import { Paleta, alfa } from '../tema';
 import {
   BarraIndice,
@@ -64,17 +64,60 @@ export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
 }
 
 function TarjetaNormativa() {
+  const m = useMonitor();
+  const l = m.lectura;
+  const pm25Instantaneo = l?.pm25;
+  const prom12h = promediosMovilesHoras(m.historial, l, 'aire', Date.now(), 12);
+  const valor12h = prom12h.promedio ?? pm25Instantaneo;
+  const nivel12h = valor12h !== undefined ? nivel(indiceDe('pm25', valor12h)) : null;
+
   return (
     <Tarjeta radio={16} fondo={Paleta.superficie}>
       <View style={estilos.filaCentro}>
-        <Icono nombre="information-outline" tam={18} color={Paleta.verde} />
-        <T t={12} f="extra" style={{ marginLeft: 6 }}>
-          Criterio Normativo NOM-172-SEMARNAT-2023
+        <Icono nombre="chart-bell-curve-cumulative" tam={20} color={Paleta.verde} />
+        <T t={13} f="extra" style={{ marginLeft: 6, flex: 1 }}>
+          Comparativa Normativa NOM-172
         </T>
+        {nivel12h ? (
+          <Pastilla texto={nivel12h.nombre} color={nivel12h.color} fondo={nivel12h.colorSuave} />
+        ) : null}
       </View>
-      <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 6, lineHeight: 16 }}>
-        La norma oficial exige evaluar promedios móviles (12 h para partículas PM2.5 y 8 h para monóxido de carbono). En este prototipo se aplican umbrales instantáneos validados para respuesta inmediata y alertamiento en tiempo real ante eventos críticos.
+
+      <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 6, lineHeight: 15 }}>
+        La norma oficial exige evaluar promedios móviles para clasificar el riesgo a la salud pública:
       </T>
+
+      <View style={[estilos.filaMetricas, { gap: 8, marginTop: 10 }]}>
+        <View style={[estilos.gas, { backgroundColor: Paleta.fondo }]}>
+          <T t={9.5} f="seminegrita" c={Paleta.textoSuave}>
+            Lectura en Tiempo Real
+          </T>
+          <ValorConUnidad
+            valor={pm25Instantaneo !== undefined ? numero(pm25Instantaneo, 1) : '--'}
+            unidad="µg/m³"
+            tam={18}
+            style={{ marginTop: 2 }}
+          />
+          <T t={9} c={Paleta.textoTenue}>
+            Respuesta inmediata ante humo/fuego
+          </T>
+        </View>
+
+        <View style={[estilos.gas, { backgroundColor: Paleta.fondo }]}>
+          <T t={9.5} f="seminegrita" c={Paleta.textoSuave}>
+            Promedio Móvil 12 Horas
+          </T>
+          <ValorConUnidad
+            valor={valor12h !== undefined ? numero(valor12h, 1) : '--'}
+            unidad="µg/m³"
+            tam={18}
+            style={{ marginTop: 2 }}
+          />
+          <T t={9} c={nivel12h?.color ?? Paleta.textoTenue}>
+            Norma Oficial NOM-172
+          </T>
+        </View>
+      </View>
     </Tarjeta>
   );
 }

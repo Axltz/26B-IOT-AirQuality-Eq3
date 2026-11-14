@@ -184,21 +184,19 @@ export default function Ajustes() {
           </Tarjeta>
         </Seccion>
 
-        <Seccion titulo="ACTUALIZACIÓN">
+        <Seccion titulo="TRANSMISIÓN">
           <Tarjeta radio={16}>
-            <T t={12.5} f="negrita" style={{ marginBottom: 8 }}>
-              Consultar al ESP32 cada
-            </T>
-            <Opciones
-              valor={a.intervaloSeg}
-              opciones={[
-                [2, '2 s'],
-                [5, '5 s'],
-                [10, '10 s'],
-                [30, '30 s'],
-              ]}
-              alElegir={(v) => void m.fijarIntervalo(v)}
-            />
+            <View style={estilos.fila}>
+              <Icono nombre="broadcast" tam={20} color={Paleta.verde} />
+              <View style={{ flex: 1 }}>
+                <T t={12.5} f="negrita">
+                  Telemetría MQTT en Tiempo Real
+                </T>
+                <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+                  Recepción continua por WebSockets activos (sin retraso de sondeo).
+                </T>
+              </View>
+            </View>
           </Tarjeta>
         </Seccion>
 

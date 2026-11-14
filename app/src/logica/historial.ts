@@ -88,6 +88,44 @@ export function horaCorta(fecha: number): string {
   return `${dos(d.getHours())}:${dos(d.getMinutes())}`;
 }
 
+/**
+ * Calcula el promedio móvil de las últimas N horas (NOM-172: 12h para PM2.5, 8h para CO).
+ */
+export function promediosMovilesHoras(
+  historial: Lectura[],
+  actual: Lectura | null,
+  metrica: Metrica,
+  ahora: number,
+  horas: number,
+): { promedio?: number; muestras: number } {
+  const inicio = ahora - horas * HORA;
+  let suma = 0;
+  let muestras = 0;
+
+  for (const l of historial) {
+    if (l.fecha >= inicio && l.fecha <= ahora) {
+      const v = valorMetrica(metrica, l);
+      if (v !== undefined) {
+        suma += v;
+        muestras++;
+      }
+    }
+  }
+
+  if (actual && actual.fecha >= inicio && actual.fecha <= ahora) {
+    const v = valorMetrica(metrica, actual);
+    if (v !== undefined) {
+      suma += v;
+      muestras++;
+    }
+  }
+
+  return {
+    promedio: muestras > 0 ? suma / muestras : undefined,
+    muestras,
+  };
+}
+
 /** "justo ahora", "hace 5 s", "hace 3 min", "a las 13:45". */
 export function haceCuanto(fecha: number, ahora: number): string {
   const s = Math.floor((ahora - fecha) / 1000);
