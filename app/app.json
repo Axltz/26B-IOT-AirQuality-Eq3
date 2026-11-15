@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Mi Entorno",
-    "slug": "mi-entorno",
+    "name": "AURA-172",
+    "slug": "aura-172",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -33,7 +33,7 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "name": "Mi Entorno",
+      "name": "AURA-172",
       "backgroundColor": "#F4F5F0"
     },
     "plugins": [
