@@ -39,7 +39,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test pruebas/logica.test.ts",
     "esp32-simulado": "node herramientas/esp32-simulado.mjs",
-    "iniciar-sesion": "node herramientas/iniciar-sesion-expo.mjs"
+    "iniciar-sesion": "node herramientas/iniciar-sesion-expo.mjs",
+    "build:android": "eas build --platform android --profile preview",
+    "build:android:dev": "eas build --platform android --profile development"
   },
   "private": true
 }

@@ -167,6 +167,23 @@ npm start
 - Presiona `w` para abrir en navegador web.
 - O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS (asegúrate de que el celular esté en la misma red local que la computadora).
 
+### 3. Generación de APK Autónomo para Android (EAS Build)
+Para instalar la aplicación de forma permanente en cualquier dispositivo Android sin necesidad de encender la computadora ni usar Expo Go:
+```bash
+cd app
+
+# Opción A: Generar APK instalable directo (Perfil preview)
+npx eas-cli build --platform android --profile preview
+
+# Opción B: O utilizando el script de npm configurado
+npm run build:android
+```
+Al finalizar la compilación en los servidores en la nube de Expo (EAS), la terminal proporcionará un código QR y un enlace directo para descargar el archivo `.apk` e instalarlo en el móvil.
+
+> [!NOTE]
+> **¿Por qué Expo Go solicita inicio de sesión en móviles?**  
+> A partir de Expo SDK 50+, Expo implementó una política de seguridad estricta para sincronización local. Si en tu teléfono tienes la app **Expo Go** iniciada con una cuenta (por ejemplo `tu_usuario`), Expo CLI en tu computadora requiere que ejecutes `npx expo login` con esa misma cuenta para permitir el túnel de desarrollo. De forma alternativa, puedes cerrar sesión en la app Expo Go en tu teléfono para abrir proyectos locales en modo anónimo sin requerir login en la terminal.
+
 > [!NOTE]
 > **¿Por qué Expo Go solicita inicio de sesión en móviles?**  
 > A partir de Expo SDK 50+, Expo implementó una política de seguridad estricta para sincronización local. Si en tu teléfono tienes la app **Expo Go** iniciada con una cuenta (por ejemplo `tu_usuario`), Expo CLI en tu computadora requiere que ejecutes `npx expo login` con esa misma cuenta para permitir el túnel de desarrollo. De forma alternativa, puedes cerrar sesión en la app Expo Go en tu teléfono para abrir proyectos locales en modo anónimo sin requerir login en la terminal.
