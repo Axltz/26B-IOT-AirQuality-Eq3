@@ -9,6 +9,7 @@ import { puntosUltimasHoras } from '../src/logica/historial';
 import { estacionMasCercana, estacionPeorRiesgo } from '../src/logica/seleccionEstacion';
 import {
   ajustesDesdeJson,
+  ajustesPorDefecto,
   esBrokerMqtt,
   normalizarDireccion,
   urlBrokerMqtt,
@@ -152,6 +153,18 @@ test('alertas: abre, escala, cierra y respeta el enfriamiento', () => {
   assert.equal(estado!.enCurso, true);
   // Baja dos niveles (Buena): se cierra de inmediato.
   assert.equal(paso(8, ahora + 6 * 60_000).aviso, 'mejoro');
+});
+
+test('todas las opciones de notificación empiezan desactivadas (opt-in)', () => {
+  for (const a of [ajustesPorDefecto(), ajustesDesdeJson({})]) {
+    assert.equal(a.alertasActivas, false);
+    assert.equal(a.avisarMejora, false);
+    assert.equal(a.reporteProgramado, false);
+    assert.equal(a.alertaPeriodica, false);
+    assert.equal(a.usarGrupoVulnerable, false);
+  }
+  // Lo que el usuario guardó explícitamente se respeta.
+  assert.equal(ajustesDesdeJson({ alertasActivas: true }).alertasActivas, true);
 });
 
 test('el umbral guardado con el ICA anterior se convierte a nivel NOM-172', () => {
