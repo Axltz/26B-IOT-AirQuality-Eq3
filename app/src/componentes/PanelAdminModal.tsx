@@ -4,9 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAdmin } from '../estado/admin';
 import { useMonitor } from '../estado/monitor';
+import type { Dispositivo } from '../modelos/ajustes';
 import { estadoMqtt, obtenerUltimaLecturaMqtt } from '../servicios/clienteMqtt';
 import { Paleta } from '../tema';
 import { BotonPrincipal, BotonSecundario, ChipIcono, Etiqueta, Icono, Pastilla, T, Tarjeta, useToast } from './comunes';
+
+const BROKER_DEFECTO = 'broker.hivemq.com';
+const PREFIJO_TOPICO = 'colectivo/aire/';
 
 export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCerrar: () => void }) {
   const insets = useSafeAreaInsets();
@@ -24,10 +28,53 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [mostrandoCrearAdmin, setMostrandoCrearAdmin] = useState(false);
 
-  // Nuevo nodo form
-  const [mostrandoCrearNodo, setMostrandoCrearNodo] = useState(false);
+  // Formulario de estación (crear / editar)
+  const [mostrandoFormularioNodo, setMostrandoFormularioNodo] = useState(false);
+  const [nodoEditandoId, setNodoEditandoId] = useState<string | null>(null);
   const [nombreNodo, setNombreNodo] = useState('');
-  const [topicoNodo, setTopicoNodo] = useState('colectivo/aire/nodo2');
+  const [topicoNodo, setTopicoNodo] = useState(PREFIJO_TOPICO);
+  const [zonaNodo, setZonaNodo] = useState('');
+  const [latNodo, setLatNodo] = useState('');
+  const [lngNodo, setLngNodo] = useState('');
+  const [brokerNodo, setBrokerNodo] = useState(BROKER_DEFECTO);
+  const [guardandoNodo, setGuardandoNodo] = useState(false);
+
+  const limpiarFormularioNodo = () => {
+    setNodoEditandoId(null);
+    setNombreNodo('');
+    setTopicoNodo(PREFIJO_TOPICO);
+    setZonaNodo('');
+    setLatNodo('');
+    setLngNodo('');
+    setBrokerNodo(BROKER_DEFECTO);
+    setMostrandoFormularioNodo(false);
+  };
+
+  const abrirNuevoNodo = () => {
+    if (mostrandoFormularioNodo && !nodoEditandoId) {
+      limpiarFormularioNodo();
+      return;
+    }
+    setNodoEditandoId(null);
+    setNombreNodo('');
+    setTopicoNodo(PREFIJO_TOPICO);
+    setZonaNodo('');
+    setLatNodo('');
+    setLngNodo('');
+    setBrokerNodo(BROKER_DEFECTO);
+    setMostrandoFormularioNodo(true);
+  };
+
+  const abrirEdicionNodo = (d: Dispositivo) => {
+    setNodoEditandoId(d.id);
+    setNombreNodo(d.nombre);
+    setTopicoNodo(d.topicoMqtt || `${PREFIJO_TOPICO}${d.id}`);
+    setZonaNodo(d.zona ?? '');
+    setLatNodo(d.lat !== undefined ? String(d.lat) : '');
+    setLngNodo(d.lng !== undefined ? String(d.lng) : '');
+    setBrokerNodo(d.direccion || BROKER_DEFECTO);
+    setMostrandoFormularioNodo(true);
+  };
 
   const manejarLogin = async () => {
     setCargandoLogin(true);
@@ -52,25 +99,80 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
     }
   };
 
-  const manejarCrearNodo = async () => {
-    if (!nombreNodo.trim()) {
-      toast('Ingresa un nombre para el nodo');
+  const manejarGuardarNodo = async () => {
+    const nombre = nombreNodo.trim();
+    const topico = topicoNodo.trim();
+    const broker = brokerNodo.trim() || BROKER_DEFECTO;
+
+    if (!nombre) {
+      toast('Ingresa un nombre para la estación (ej. Estación X)');
       return;
     }
-    const id = `nodo-${Date.now()}`;
-    await m.guardarDispositivo({
-      id,
-      nombre: nombreNodo.trim(),
-      direccion: 'broker.hivemq.com',
-      demo: false,
-    });
-    toast(`Nodo ${nombreNodo.trim()} registrado exitosamente`);
-    setNombreNodo('');
-    setMostrandoCrearNodo(false);
+    if (!topico.startsWith(PREFIJO_TOPICO) || topico === PREFIJO_TOPICO) {
+      toast('El tópico debe tener el formato colectivo/aire/nodoX');
+      return;
+    }
+    const duplicado = m.ajustes.dispositivos.some(
+      (d) => d.topicoMqtt === topico && d.id !== nodoEditandoId,
+    );
+    if (duplicado) {
+      toast('Ya existe una estación con ese tópico MQTT');
+      return;
+    }
+
+    const latNum = latNodo.trim() ? parseFloat(latNodo) : undefined;
+    const lngNum = lngNodo.trim() ? parseFloat(lngNodo) : undefined;
+    if (latNum !== undefined && (isNaN(latNum) || latNum < -90 || latNum > 90)) {
+      toast('La latitud debe estar entre -90 y 90');
+      return;
+    }
+    if (lngNum !== undefined && (isNaN(lngNum) || lngNum < -180 || lngNum > 180)) {
+      toast('La longitud debe estar entre -180 y 180');
+      return;
+    }
+
+    setGuardandoNodo(true);
+    try {
+      const id = nodoEditandoId ?? (topico.split('/').pop() || `nodo-${Date.now()}`);
+      const anterior = m.ajustes.dispositivos.find((d) => d.id === id);
+      await m.guardarDispositivo({
+        id,
+        nombre,
+        zona: zonaNodo.trim() || undefined,
+        lat: latNum,
+        lng: lngNum,
+        direccion: broker,
+        topicoMqtt: topico,
+        demo: false,
+        tokenPush: anterior?.tokenPush,
+      });
+      toast(nodoEditandoId ? `Estación "${nombre}" actualizada` : `Estación "${nombre}" registrada en ${topico}`);
+      limpiarFormularioNodo();
+    } finally {
+      setGuardandoNodo(false);
+    }
+  };
+
+  const manejarActivarNodo = async (d: Dispositivo) => {
+    await m.cambiarDispositivo(d.id);
+    toast(`Ahora la app recibe datos de "${d.nombre}"`);
+  };
+
+  const manejarEliminarNodo = async (d: Dispositivo) => {
+    if (m.ajustes.dispositivos.length <= 1) {
+      toast('Debe quedar al menos una estación registrada');
+      return;
+    }
+    await m.eliminarDispositivo(d.id);
+    if (nodoEditandoId === d.id) limpiarFormularioNodo();
+    toast(`Estación "${d.nombre}" eliminada`);
   };
 
   const ultimaMqtt = obtenerUltimaLecturaMqtt();
   const estMqtt = estadoMqtt();
+  const ultimaMuestra = m.ultimaActualizacion
+    ? new Date(m.ultimaActualizacion).toLocaleTimeString()
+    : 'Sin datos';
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={alCerrar}>
@@ -98,7 +200,7 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
           ) : null}
         </View>
 
-        <ScrollView contentContainerStyle={estilos.scroll}>
+        <ScrollView contentContainerStyle={estilos.scroll} keyboardShouldPersistTaps="handled">
           {!esAdmin ? (
             /* Vista de Login de Administrador */
             <Tarjeta radio={16} style={{ marginTop: 16 }}>
@@ -162,8 +264,42 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
                 </View>
               </Tarjeta>
 
+              {/* Resumen rápido de la red */}
+              <View style={[estilos.fila, { marginTop: 18 }]}>
+                <Etiqueta>RESUMEN DE LA RED</Etiqueta>
+              </View>
+              <View style={estilos.filaEstadisticas}>
+                <Tarjeta radio={12} style={estilos.estadistica}>
+                  <ChipIcono nombre="access-point-network" color={Paleta.azul} fondo={Paleta.azulSuave} tam={28} tamIcono={15} />
+                  <T t={20} f="extra" style={{ marginTop: 6 }}>
+                    {m.ajustes.dispositivos.length}
+                  </T>
+                  <T t={9.5} c={Paleta.textoSuave}>
+                    Estaciones
+                  </T>
+                </Tarjeta>
+                <Tarjeta radio={12} style={estilos.estadistica}>
+                  <ChipIcono nombre="shield-account" color={Paleta.verde} fondo={Paleta.verdeSuave} tam={28} tamIcono={15} />
+                  <T t={20} f="extra" style={{ marginTop: 6 }}>
+                    {admins.length}
+                  </T>
+                  <T t={9.5} c={Paleta.textoSuave}>
+                    Admins
+                  </T>
+                </Tarjeta>
+                <Tarjeta radio={12} style={estilos.estadistica}>
+                  <ChipIcono nombre="clock-outline" color={Paleta.amarillo} fondo="#FBF3DC" tam={28} tamIcono={15} />
+                  <T t={13} f="extra" style={{ marginTop: 10 }} numberOfLines={1}>
+                    {ultimaMuestra}
+                  </T>
+                  <T t={9.5} c={Paleta.textoSuave}>
+                    Última muestra
+                  </T>
+                </Tarjeta>
+              </View>
+
               {/* 1. Diagnóstico de Salud de las 3 Capas del IoT */}
-              <View style={{ marginTop: 18 }}>
+              <View style={{ marginTop: 22 }}>
                 <Etiqueta>DIAGNÓSTICO DEL SISTEMA (3 CAPAS)</Etiqueta>
               </View>
 
@@ -199,7 +335,7 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
                       2. Capa de Transporte (MQTT)
                     </T>
                     <T t={10} c={Paleta.textoSuave}>
-                      HiveMQ Broker · WSS Port 8884
+                      {m.dispositivo.direccion || BROKER_DEFECTO} · WebSockets
                     </T>
                   </View>
                   <Pastilla
@@ -209,8 +345,13 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
                   />
                 </View>
                 <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 8 }}>
-                  Tópico activo: colectivo/aire/nodo1
+                  Tópico activo: {m.dispositivo.topicoMqtt ?? `${PREFIJO_TOPICO}nodo1`}
                 </T>
+                {ultimaMqtt ? (
+                  <T t={9.5} c={Paleta.textoTenue} style={{ marginTop: 2 }}>
+                    Último paquete: {new Date(ultimaMqtt.fecha).toLocaleTimeString()}
+                  </T>
+                ) : null}
               </Tarjeta>
 
               {/* Capa 3: Aplicación */}
@@ -232,65 +373,196 @@ export function PanelAdminModal({ visible, alCerrar }: { visible: boolean; alCer
               {/* 2. Administración de Nodos (Estaciones) */}
               <View style={[estilos.fila, { marginTop: 22, justifyContent: 'space-between' }]}>
                 <Etiqueta>GESTIÓN DE ESTACIONES / NODOS</Etiqueta>
-                <Pressable onPress={() => setMostrandoCrearNodo(!mostrandoCrearNodo)} accessibilityRole="button">
+                <Pressable onPress={abrirNuevoNodo} accessibilityRole="button" hitSlop={6}>
                   <T t={11} f="extra" c={Paleta.verde}>
-                    {mostrandoCrearNodo ? 'Cancelar' : '+ Agregar Nodo'}
+                    {mostrandoFormularioNodo && !nodoEditandoId ? 'Cancelar' : '+ Agregar Nodo'}
                   </T>
                 </Pressable>
               </View>
 
-              {mostrandoCrearNodo ? (
+              {mostrandoFormularioNodo ? (
                 <Tarjeta radio={14} style={{ marginTop: 8 }}>
-                  <T t={12} f="extra">
-                    Registrar Nueva Estación de Monitoreo
-                  </T>
-                  <T t={10.5} c={Paleta.textoSuave} style={{ marginBottom: 8 }}>
-                    Solo los administradores pueden añadir estaciones a la red comunitaria.
-                  </T>
+                  <View style={estilos.fila}>
+                    <ChipIcono
+                      nombre={nodoEditandoId ? 'pencil-outline' : 'plus-circle-outline'}
+                      color={Paleta.verde}
+                      fondo={Paleta.verdeSuave}
+                      tam={28}
+                      tamIcono={15}
+                    />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <T t={12.5} f="extra">
+                        {nodoEditandoId ? 'Editar estación de monitoreo' : 'Registrar nueva estación'}
+                      </T>
+                      <T t={9.5} c={Paleta.textoSuave}>
+                        Solo administradores pueden modificar la red.
+                      </T>
+                    </View>
+                    {nodoEditandoId ? (
+                      <Pressable onPress={limpiarFormularioNodo} accessibilityRole="button">
+                        <T t={10.5} f="extra" c={Paleta.rojo}>
+                          Cancelar
+                        </T>
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginTop: 12, marginBottom: 4 }}>Nombre de la estación *</T>
                   <TextInput
                     value={nombreNodo}
                     onChangeText={setNombreNodo}
-                    placeholder="Ej. Estación Primaria #12"
+                    placeholder="Ej. Estación X"
                     style={estilos.input}
                   />
-                  <View style={{ marginTop: 10 }}>
-                    <BotonPrincipal texto="Guardar Nodo" alPresionar={manejarCrearNodo} />
+
+                  <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginTop: 10, marginBottom: 4 }}>Tópico MQTT *</T>
+                  <TextInput
+                    value={topicoNodo}
+                    onChangeText={setTopicoNodo}
+                    placeholder={`${PREFIJO_TOPICO}nodo2`}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={estilos.input}
+                  />
+                  <T t={9} c={Paleta.textoTenue} style={{ marginTop: 3 }}>
+                    Debe coincidir con NODO_ID en el firmware del ESP32.
+                  </T>
+
+                  <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginTop: 10, marginBottom: 4 }}>Zona / Referencia (opcional)</T>
+                  <TextInput
+                    value={zonaNodo}
+                    onChangeText={setZonaNodo}
+                    placeholder="Ej. Zona Norte · Módulo B"
+                    style={estilos.input}
+                  />
+
+                  <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginTop: 10, marginBottom: 4 }}>Broker MQTT (host o URL WSS)</T>
+                  <TextInput
+                    value={brokerNodo}
+                    onChangeText={setBrokerNodo}
+                    placeholder={BROKER_DEFECTO}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={estilos.input}
+                  />
+                  <T t={9} c={Paleta.textoTenue} style={{ marginTop: 3 }}>
+                    Por defecto {BROKER_DEFECTO}. También acepta wss://mi-broker.com/mqtt.
+                  </T>
+
+                  <View style={[estilos.fila, { gap: 8, marginTop: 10, alignItems: 'flex-start' }]}>
+                    <View style={{ flex: 1 }}>
+                      <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginBottom: 4 }}>Latitud (opcional)</T>
+                      <TextInput
+                        value={latNodo}
+                        onChangeText={setLatNodo}
+                        placeholder="20.6575"
+                        keyboardType="numeric"
+                        style={estilos.input}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <T t={10.5} f="negrita" c={Paleta.textoSuave} style={{ marginBottom: 4 }}>Longitud (opcional)</T>
+                      <TextInput
+                        value={lngNodo}
+                        onChangeText={setLngNodo}
+                        placeholder="-103.3255"
+                        keyboardType="numeric"
+                        style={estilos.input}
+                      />
+                    </View>
+                  </View>
+                  <T t={9} c={Paleta.textoTenue} style={{ marginTop: 3 }}>
+                    Coordenadas necesarias para el modo "Estación más cercana" por GPS.
+                  </T>
+
+                  <View style={{ marginTop: 14 }}>
+                    <BotonPrincipal
+                      texto={guardandoNodo ? 'Guardando…' : nodoEditandoId ? 'Guardar Cambios' : 'Guardar Nodo'}
+                      alPresionar={manejarGuardarNodo}
+                      deshabilitado={guardandoNodo}
+                    />
                   </View>
                 </Tarjeta>
               ) : null}
 
-              <Tarjeta radio={14} style={{ marginTop: 8, padding: 0, overflow: 'hidden' }}>
-                {m.ajustes.dispositivos.map((d, i) => (
-                  <View key={d.id} style={[estilos.fila, { padding: 14, borderTopWidth: i > 0 ? 1 : 0, borderColor: Paleta.borde }]}>
-                    <ChipIcono nombre="chip" color={Paleta.verde} fondo={Paleta.verdeSuave} tam={32} tamIcono={16} />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <T t={12.5} f="extra">
-                        {d.nombre}
-                      </T>
-                      <T t={10} c={Paleta.textoSuave}>
-                        {d.id === m.ajustes.activoId ? 'Transmitiendo en vivo' : 'En espera'}
-                      </T>
+              {m.ajustes.dispositivos.map((d, i) => {
+                const activo = d.id === m.ajustes.activoId;
+                return (
+                  <Tarjeta
+                    key={d.id}
+                    radio={14}
+                    style={[estilos.tarjetaNodo, i === 0 ? { marginTop: 8 } : null, activo && { borderColor: Paleta.verdeBorde }]}
+                  >
+                    <View style={[estilos.fila, { alignItems: 'flex-start' }]}>
+                      <ChipIcono
+                        nombre={activo ? 'access-point' : 'access-point-network'}
+                        color={activo ? Paleta.verde : Paleta.textoSuave}
+                        fondo={activo ? Paleta.verdeSuave : Paleta.relleno}
+                        tam={34}
+                        tamIcono={17}
+                      />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <View style={[estilos.fila, { gap: 6 }]}>
+                          <T t={12.5} f="extra" numberOfLines={1} style={{ flexShrink: 1 }}>
+                            {d.nombre}
+                          </T>
+                          {activo ? <Pastilla texto="En vivo" color={Paleta.verde} fondo={Paleta.verdeSuave} /> : null}
+                        </View>
+                        <T t={10} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+                          {d.zona ?? 'Sin zona asignada'}
+                        </T>
+                        <View style={[estilos.fila, { marginTop: 4, gap: 5 }]}>
+                          <Icono nombre="broadcast" tam={13} color={Paleta.textoTenue} />
+                          <T t={9.5} c={Paleta.textoSuave} numberOfLines={1} style={{ flexShrink: 1 }}>
+                            {d.topicoMqtt}
+                          </T>
+                        </View>
+                        <View style={[estilos.fila, { marginTop: 2, gap: 5 }]}>
+                          <Icono nombre="server-network" tam={13} color={Paleta.textoTenue} />
+                          <T t={9.5} c={Paleta.textoTenue} numberOfLines={1} style={{ flexShrink: 1 }}>
+                            {d.direccion}
+                            {d.lat !== undefined && d.lng !== undefined
+                              ? ` · ${d.lat.toFixed(4)}, ${d.lng.toFixed(4)}`
+                              : ' · Sin coordenadas'}
+                          </T>
+                        </View>
+                      </View>
                     </View>
-                    {m.ajustes.dispositivos.length > 1 ? (
-                      <Pressable
-                        onPress={() => {
-                          void m.eliminarDispositivo(d.id);
-                          toast(`Nodo ${d.nombre} eliminado`);
-                        }}
-                        style={{ padding: 6 }}
-                        accessibilityRole="button"
-                      >
-                        <Icono nombre="trash-can-outline" tam={18} color={Paleta.rojo} />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ))}
-              </Tarjeta>
+                    <View style={estilos.accionesNodo}>
+                      <View style={{ flex: 1 }}>
+                        <BotonSecundario
+                          texto={activo ? 'En uso' : 'Activar'}
+                          icono={activo ? 'check-circle-outline' : 'play-circle-outline'}
+                          color={activo ? Paleta.verde : Paleta.texto}
+                          alPresionar={() => void manejarActivarNodo(d)}
+                          deshabilitado={activo}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <BotonSecundario
+                          texto="Editar"
+                          icono="pencil-outline"
+                          alPresionar={() => abrirEdicionNodo(d)}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <BotonSecundario
+                          texto="Eliminar"
+                          icono="trash-can-outline"
+                          color={m.ajustes.dispositivos.length > 1 ? Paleta.rojo : Paleta.textoTenue}
+                          alPresionar={() => void manejarEliminarNodo(d)}
+                          deshabilitado={m.ajustes.dispositivos.length <= 1}
+                        />
+                      </View>
+                    </View>
+                  </Tarjeta>
+                );
+              })}
 
               {/* 3. Gestión de Otros Administradores */}
               <View style={[estilos.fila, { marginTop: 22, justifyContent: 'space-between' }]}>
                 <Etiqueta>ADMINISTRADORES CON ACCESO</Etiqueta>
-                <Pressable onPress={() => setMostrandoCrearAdmin(!mostrandoCrearAdmin)} accessibilityRole="button">
+                <Pressable onPress={() => setMostrandoCrearAdmin(!mostrandoCrearAdmin)} accessibilityRole="button" hitSlop={6}>
                   <T t={11} f="extra" c={Paleta.verde}>
                     {mostrandoCrearAdmin ? 'Cancelar' : '+ Nuevo Admin'}
                   </T>
@@ -389,6 +661,10 @@ const estilos = StyleSheet.create({
   },
   scroll: { paddingHorizontal: 16, paddingBottom: 24 },
   fila: { flexDirection: 'row', alignItems: 'center' },
+  filaEstadisticas: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  estadistica: { flex: 1, padding: 10, alignItems: 'flex-start' },
+  tarjetaNodo: { padding: 14, marginTop: 8 },
+  accionesNodo: { flexDirection: 'row', gap: 8, marginTop: 12 },
   input: {
     backgroundColor: Paleta.relleno,
     borderWidth: 1,

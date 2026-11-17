@@ -6,7 +6,12 @@ import { ESPERA_MEJORA_MS, evaluarAlerta, type EstadoAlerta, type Evaluacion } f
 import { evaluarAire } from '../src/logica/calidadAire';
 import { sensacionTermica } from '../src/logica/confort';
 import { puntosUltimasHoras } from '../src/logica/historial';
-import { ajustesDesdeJson, normalizarDireccion } from '../src/modelos/ajustes';
+import {
+  ajustesDesdeJson,
+  esBrokerMqtt,
+  normalizarDireccion,
+  urlBrokerMqtt,
+} from '../src/modelos/ajustes';
 import { lecturaDesdeJson } from '../src/modelos/lectura';
 
 const ahora = new Date(2026, 10, 8, 13, 20).getTime();
@@ -14,12 +19,12 @@ const aire = (o: object) => evaluarAire({ fecha: ahora, ...o });
 const nivelDe = (o: object) => aire(o)!.nivel.nombre;
 
 describe('NOM-172 (igual que el semáforo del ESP32)', () => {
-  test('PM2.5: 15 · 25 · 79 · 130 µg/m³', () => {
+  test('PM2.5: 15 · 33 · 79 · 130 µg/m³', () => {
     assert.equal(nivelDe({ pm25: 0 }), 'Buena');
     assert.equal(nivelDe({ pm25: 15 }), 'Buena');
     assert.equal(nivelDe({ pm25: 15.1 }), 'Aceptable');
-    assert.equal(nivelDe({ pm25: 25 }), 'Aceptable');
-    assert.equal(nivelDe({ pm25: 25.1 }), 'Mala');
+    assert.equal(nivelDe({ pm25: 33 }), 'Aceptable');
+    assert.equal(nivelDe({ pm25: 33.1 }), 'Mala');
     assert.equal(nivelDe({ pm25: 79 }), 'Mala');
     assert.equal(nivelDe({ pm25: 79.1 }), 'Muy mala');
     assert.equal(nivelDe({ pm25: 130 }), 'Muy mala');
@@ -81,6 +86,16 @@ describe('JSON del ESP32', () => {
       'http://192.168.1.50:8080',
     );
   });
+
+  test('distingue broker MQTT de servidor HTTP local y arma la URL WSS', () => {
+    assert.equal(esBrokerMqtt('broker.hivemq.com'), true);
+    assert.equal(esBrokerMqtt('wss://mi-broker.com/mqtt'), true);
+    assert.equal(esBrokerMqtt('192.168.1.50:8090'), false);
+
+    assert.equal(urlBrokerMqtt('broker.hivemq.com'), 'wss://broker.hivemq.com:8884/mqtt');
+    assert.equal(urlBrokerMqtt('wss://mi-broker.com/mqtt'), 'wss://mi-broker.com/mqtt');
+    assert.equal(urlBrokerMqtt('mqtt://broker.hivemq.com:1883'), 'wss://broker.hivemq.com:8884/mqtt');
+  });
 });
 
 test('sensación térmica del diseño (24° y 58 %) ≈ 25.7°', () => {
@@ -126,7 +141,7 @@ test('alertas: abre, escala, cierra y respeta el enfriamiento', () => {
   // Baja a Aceptable (un nivel abajo del umbral): espera un minuto antes de cerrar.
   assert.equal(paso(20, ahora + 10_000).aviso, null);
   assert.equal(estado!.enCurso, true);
-  assert.equal(paso(30, ahora + 20_000).aviso, null); // vuelve a Mala: se reinicia la espera
+  assert.equal(paso(40, ahora + 20_000).aviso, null); // vuelve a Mala: se reinicia la espera
   assert.equal(paso(20, ahora + 30_000).aviso, null);
   assert.equal(paso(20, ahora + 30_000 + ESPERA_MEJORA_MS).aviso, 'mejoro');
   assert.equal(estado!.enCurso, false);

@@ -61,7 +61,7 @@ export function nivel(indice: number): Nivel {
 
 /** Límite superior de Buena, Aceptable, Mala y Muy mala (igual que el ESP32). */
 export const CORTES = {
-  pm25: [15, 25, 79, 130], // µg/m³
+  pm25: [15, 33, 79, 130], // µg/m³ (cortes oficiales NOM-172-SEMARNAT-2023)
   co: [5, 9, 12, 16], // ppm
 } as const;
 
@@ -123,7 +123,7 @@ export function posicionNivel(indice: number): number {
   return (nivel(indice).indice + 0.5) / 5;
 }
 
-/** Etiquetas de la barra de un contaminante: 0 · 15 · 25 · 79 · 130+ */
+/** Etiquetas de la barra de un contaminante: 0 · 15 · 33 · 79 · 130+ */
 export function etiquetasBarra(c: Calificable): string[] {
   const lim = CORTES[c];
   return ['0', String(lim[0]), String(lim[1]), String(lim[2]), `${lim[3]}+`];

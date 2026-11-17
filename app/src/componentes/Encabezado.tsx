@@ -4,38 +4,42 @@ import { useMonitor } from '../estado/monitor';
 import { Paleta } from '../tema';
 import { Etiqueta, Icono, PuntoEstado, T, sombraSuave } from './comunes';
 
-/** "MI ENTORNO / Casa ▾" y la campana. */
-export function Encabezado({ alAbrirSelector }: { alAbrirSelector: () => void }) {
+/** "MI ENTORNO / nombre estación" solo muestra el nodo activo sin abrir selector. */
+export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
   const m = useMonitor();
   const colorConexion =
     m.conexion === 'enLinea' ? Paleta.verde : m.conexion === 'conectando' ? Paleta.amarillo : Paleta.rojo;
   return (
     <View style={estilos.fila}>
-      <Pressable
-        onPress={alAbrirSelector}
-        accessibilityRole="button"
-        accessibilityLabel={`Dispositivo ${m.dispositivo.nombre}. Cambiar dispositivo`}
-        style={({ pressed }) => [{ flexShrink: 1, paddingVertical: 4, opacity: pressed ? 0.6 : 1 }]}
-      >
+      <View style={{ flexShrink: 1, paddingVertical: 4 }}>
         <Etiqueta>MI ENTORNO</Etiqueta>
         <View style={estilos.nombre}>
           <Icono nombre="map-marker-outline" tam={16} color={Paleta.verde} />
           <T t={17} f="extra" numberOfLines={1} style={{ flexShrink: 1 }}>
             {m.dispositivo.nombre}
           </T>
-          <Icono nombre="chevron-down" tam={18} color={Paleta.textoTenue} />
           <PuntoEstado color={colorConexion} pulso={m.conexion === 'conectando'} />
         </View>
-      </Pressable>
-      <Pressable
-        onPress={() => m.mostrarVista(m.vista === 'notificacion' ? 'resumen' : 'notificacion')}
-        accessibilityRole="button"
-        accessibilityLabel={m.hayAvisoSinLeer ? 'Avisos, 1 sin leer' : 'Avisos'}
-        style={({ pressed }) => [estilos.campana, sombraSuave, { opacity: pressed ? 0.7 : 1 }]}
-      >
-        <Icono nombre="bell-outline" tam={19} />
-        {m.hayAvisoSinLeer ? <View style={estilos.puntoCampana} /> : null}
-      </Pressable>
+      </View>
+      <View style={estilos.acciones}>
+        <Pressable
+          onPress={alAbrirAjustes}
+          accessibilityRole="button"
+          accessibilityLabel="Ajustes"
+          style={({ pressed }) => [estilos.campana, sombraSuave, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Icono nombre="cog-outline" tam={19} />
+        </Pressable>
+        <Pressable
+          onPress={() => m.mostrarVista(m.vista === 'notificacion' ? 'resumen' : 'notificacion')}
+          accessibilityRole="button"
+          accessibilityLabel={m.hayAvisoSinLeer ? 'Avisos, 1 sin leer' : 'Avisos'}
+          style={({ pressed }) => [estilos.campana, sombraSuave, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Icono nombre="bell-outline" tam={19} />
+          {m.hayAvisoSinLeer ? <View style={estilos.puntoCampana} /> : null}
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -76,6 +80,7 @@ export function Pestanas() {
 
 const estilos = StyleSheet.create({
   fila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  acciones: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   nombre: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   campana: {
     width: 40,

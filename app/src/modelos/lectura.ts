@@ -11,6 +11,8 @@ export interface Lectura {
   temperatura?: number;
   /** % de humedad relativa */
   humedad?: number;
+  /** Partículas ultrafinas PM1 en µg/m³ */
+  pm1?: number;
   /** Partículas finas PM2.5 en µg/m³ */
   pm25?: number;
   /** Partículas PM10 en µg/m³ */
@@ -25,21 +27,28 @@ export interface Lectura {
   no2?: number;
   /** Nivel NOM-172 del semáforo del ESP32: 0 Buena … 4 Extremadamente mala (opcional) */
   nivelReportado?: number;
+  nivel_general?: number;
+  nivel_pm25?: number;
+  nivel_pm10?: number;
+  nivel_co?: number;
+  dominante?: string;
+  estado?: string;
 }
 
-type Campo = 'temperatura' | 'humedad' | 'pm25' | 'pm10' | 'co2' | 'co' | 'cov' | 'no2' | 'nivel';
+type Campo = 'temperatura' | 'humedad' | 'pm1' | 'pm25' | 'pm10' | 'co2' | 'co' | 'cov' | 'no2' | 'nivel';
 
 /** Nombres de campo aceptados en el JSON del ESP32 (español o inglés). */
 const ALIAS: Record<Campo, string[]> = {
   temperatura: ['temperatura', 'temperature', 'temp', 'temp_c'],
   humedad: ['humedad', 'humidity', 'hum', 'rh'],
+  pm1: ['pm1', 'pm1_0', 'pm1.0', 'pm_1'],
   pm25: ['pm25', 'pm2_5', 'pm2.5', 'pm_25'],
   pm10: ['pm10', 'pm_10'],
   co2: ['co2', 'eco2'],
   co: ['co'],
   cov: ['cov', 'voc', 'tvoc'],
   no2: ['no2'],
-  nivel: ['nivel_nom172', 'nom172'],
+  nivel: ['nivel_general', 'nivel_nom172', 'nom172', 'nivel'],
 };
 
 export function lecturaVacia(l: Lectura): boolean {
@@ -102,18 +111,31 @@ export function lecturaDesdeJson(json: Record<string, unknown>, fecha = Date.now
     if (ppb !== undefined) cov = ppb / 1000;
   }
   const nivel = rango(leer('nivel'), 0, 4);
+  const nivelGeneral = nivel !== undefined ? Math.round(nivel) : undefined;
+  const nivelPm25 = rango(numero(plano['nivel_pm25']), 0, 4);
+  const nivelPm10 = rango(numero(plano['nivel_pm10']), 0, 4);
+  const nivelCo = rango(numero(plano['nivel_co']), 0, 4);
+  const dominante = typeof plano['dominante'] === 'string' && plano['dominante'].trim() ? (plano['dominante'] as string).trim() : undefined;
+  const estado = typeof plano['estado'] === 'string' && plano['estado'].trim() ? (plano['estado'] as string).trim() : undefined;
 
   return quitarVacios({
     fecha,
     temperatura: rango(leer('temperatura'), -40, 85),
     humedad: rango(leer('humedad'), 0, 100),
+    pm1: rango(leer('pm1'), 0, 1000),
     pm25: rango(leer('pm25'), 0, 1000),
     pm10: rango(leer('pm10'), 0, 2000),
     co2: rango(leer('co2'), 250, 40000),
     co: rango(leer('co'), 0, 1000),
     cov: rango(cov, 0, 100),
     no2: rango(leer('no2'), 0, 10000),
-    nivelReportado: nivel === undefined ? undefined : Math.round(nivel),
+    nivelReportado: nivelGeneral,
+    nivel_general: nivelGeneral,
+    nivel_pm25: nivelPm25 !== undefined ? Math.round(nivelPm25) : undefined,
+    nivel_pm10: nivelPm10 !== undefined ? Math.round(nivelPm10) : undefined,
+    nivel_co: nivelCo !== undefined ? Math.round(nivelCo) : undefined,
+    dominante,
+    estado,
   });
 }
 

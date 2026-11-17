@@ -1,10 +1,9 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Encabezado, Pestanas } from '../componentes/Encabezado';
-import { FormularioDispositivo, SelectorDispositivo } from '../componentes/Hojas';
 import { Resumen } from '../componentes/Resumen';
 import { VistaNotificacion } from '../componentes/VistaNotificacion';
 import { useMonitor } from '../estado/monitor';
@@ -13,11 +12,8 @@ import { Paleta } from '../tema';
 export default function Inicio() {
   const m = useMonitor();
   const insets = useSafeAreaInsets();
-  const [selector, setSelector] = useState(false);
-  const [formulario, setFormulario] = useState(false);
 
   const abrirAjustes = () => {
-    setSelector(false);
     router.push('/ajustes');
   };
 
@@ -31,23 +27,13 @@ export default function Inicio() {
         ) : (
           <>
             <View style={estilos.cabecera}>
-              <Encabezado alAbrirSelector={() => setSelector(true)} />
+              <Encabezado alAbrirAjustes={abrirAjustes} />
               {m.mostrarPestanas ? <Pestanas /> : null}
             </View>
             {m.vista === 'resumen' ? <Resumen alAbrirAjustes={abrirAjustes} /> : <VistaNotificacion />}
           </>
         )}
       </View>
-      <SelectorDispositivo
-        visible={selector}
-        alCerrar={() => setSelector(false)}
-        alAgregar={() => {
-          setSelector(false);
-          setFormulario(true);
-        }}
-        alAbrirAjustes={abrirAjustes}
-      />
-      <FormularioDispositivo visible={formulario} existente={null} alCerrar={() => setFormulario(false)} />
     </View>
   );
 }

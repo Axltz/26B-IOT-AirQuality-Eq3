@@ -1,58 +1,28 @@
 import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  BotonPrincipal,
-  BotonSecundario,
   Etiqueta,
   Icono,
   Interruptor,
-  Pastilla,
   T,
   Tarjeta,
-  useToast,
 } from '../componentes/comunes';
-import { FilaDispositivo, FormularioDispositivo, Hoja } from '../componentes/Hojas';
 import { PanelAdminModal } from '../componentes/PanelAdminModal';
 import { useAdmin } from '../estado/admin';
 import { useMonitor } from '../estado/monitor';
 import { GRUPOS_VULNERABLES } from '../logica/gruposVulnerables';
 import { nivel } from '../logica/calidadAire';
-import type { Dispositivo } from '../modelos/ajustes';
-import { estadoPush } from '../servicios/notificaciones';
 import { Paleta } from '../tema';
 
 export default function Ajustes() {
   const m = useMonitor();
-  const { esAdmin } = useAdmin();
+  const { esAdmin, adminActual } = useAdmin();
   const insets = useSafeAreaInsets();
-  const toast = useToast();
   const a = m.ajustes;
-  const [editando, setEditando] = useState<Dispositivo | null>(null);
-  const [formulario, setFormulario] = useState(false);
-  const [confirmar, setConfirmar] = useState<null | { titulo: string; texto: string; accion: () => Promise<void> }>(null);
-  const [activandoPush, setActivandoPush] = useState(false);
   const [panelAdminVisible, setPanelAdminVisible] = useState(false);
-
-  const editar = (d: Dispositivo | null) => {
-    setEditando(d);
-    setFormulario(true);
-  };
-
-  const push = estadoPush();
-  const activarPush = async () => {
-    setActivandoPush(true);
-    try {
-      await m.activarPush();
-      toast(`Listo: ${m.dispositivo.nombre} te avisará aunque la app esté cerrada.`);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e));
-    } finally {
-      setActivandoPush(false);
-    }
-  };
 
   return (
     <View style={[estilos.pantalla, { paddingTop: insets.top }]}>
@@ -71,113 +41,53 @@ export default function Ajustes() {
           </T>
         </View>
 
-        <Seccion titulo="DISPOSITIVOS">
-          <Tarjeta radio={16} style={{ padding: 0, overflow: 'hidden' }}>
-            {a.dispositivos.map((d) => (
-              <View key={d.id}>
-                <FilaDispositivo
-                  d={d}
-                  activo={d.id === a.activoId}
-                  alTocar={() => void m.cambiarDispositivo(d.id)}
-                  acciones={
-                    <View style={estilos.fila}>
-                      {d.id === a.activoId ? (
-                        <Pastilla texto="Activo" color={Paleta.verde} fondo={Paleta.verdeSuave} />
-                      ) : null}
-                      {esAdmin ? (
-                        <BotonIcono icono="pencil-outline" etiqueta="Editar" alPresionar={() => editar(d)} />
-                      ) : null}
-                      {esAdmin && a.dispositivos.length > 1 ? (
-                        <BotonIcono
-                          icono="trash-can-outline"
-                          etiqueta="Quitar"
-                          alPresionar={() =>
-                            setConfirmar({
-                              titulo: `¿Quitar ${d.nombre}?`,
-                              texto: 'Se quitará de la lista junto con su historial guardado en este teléfono.',
-                              accion: () => m.eliminarDispositivo(d.id),
-                            })
-                          }
-                        />
-                      ) : null}
-                    </View>
-                  }
-                />
-                <View style={estilos.linea} />
-              </View>
-            ))}
-            {/* Solo los administradores pueden añadir nuevos nodos de medición */}
-            {esAdmin ? (
-              <Pressable onPress={() => editar(null)} style={estilos.agregar} accessibilityRole="button">
-                <Icono nombre="plus" tam={20} color={Paleta.verde} />
-                <T t={13} f="extra" c={Paleta.verde}>
-                  Agregar Estación ESP32
-                </T>
-              </Pressable>
-            ) : null}
+        {/* ═══ MODO DE ENLACE INTELIGENTE (100% AUTOMÁTICO) ═══ */}
+        <Seccion titulo="ENLACE AUTOMÁTICO DE ESTACIÓN">
+          <Tarjeta radio={16}>
+            <View style={{ gap: 8 }}>
+              {/* Modo 1: Más cercana — GPS automático */}
+              <OpcionModoConexion
+                icono="crosshairs-gps"
+                titulo="Estación más cercana"
+                detalle="Enlaza automáticamente al nodo más próximo a tu ubicación real."
+                activa={a.modoConexion === 'cercana'}
+                alSeleccionar={() => void m.fijarModoConexion('cercana')}
+              />
+
+              {/* Modo 2: Peor calidad */}
+              <OpcionModoConexion
+                icono="alert-decagram-outline"
+                titulo="Mayor riesgo ambiental"
+                detalle="Modo Centinela: se vincula al nodo con peor calidad de aire para prevenirte."
+                activa={a.modoConexion === 'peor'}
+                alSeleccionar={() => void m.fijarModoConexion('peor')}
+              />
+            </View>
           </Tarjeta>
         </Seccion>
 
-        <Seccion titulo="ALERTAS Y GRUPOS VULNERABLES (NOM-172)">
+        {/* ═══ ALERTAS Y NOTIFICACIONES INTELIGENTES ═══ */}
+        <Seccion titulo="NOTIFICACIONES Y ALERTAS DE RIESGO">
           <Tarjeta radio={16}>
+            {/* — Si empeora — */}
             <FilaInterruptor
-              titulo="Alertas de calidad del aire"
-              detalle="Notificar prioritariamente cuando el aire empeore."
+              titulo="Notificar si el aire empeora"
+              detalle="Aviso inmediato cuando la calidad cruza el umbral de riesgo configurado."
               valor={a.alertasActivas}
               alCambiar={(v) => void m.fijarAlertasActivas(v)}
             />
             <View style={{ height: 14 }} />
+
+            {/* — Si mejora — */}
             <FilaInterruptor
               titulo="Avisar cuando mejore"
-              detalle="Otra notificación cuando el aire se recupere."
+              detalle="Notificación de alivio cuando los contaminantes desciendan a niveles seguros."
               valor={a.avisarMejora}
               alCambiar={(v) => void m.fijarAvisarMejora(v)}
             />
 
-            <T t={12.5} f="negrita" style={{ marginTop: 16, marginBottom: 4 }}>
-              Población Sensible / Grupo Vulnerable
-            </T>
-            <T t={10.5} c={Paleta.textoSuave} style={{ marginBottom: 10 }}>
-              Selecciona tu perfil para aplicar los umbrales de advertencia de la NOM-172-SEMARNAT-2023:
-            </T>
-
-            {GRUPOS_VULNERABLES.map((g) => {
-              const seleccionado = (a.grupoVulnerable ?? 'ninos') === g.id;
-              return (
-                <Pressable
-                  key={g.id}
-                  onPress={() => void m.fijarGrupoVulnerable(g.id)}
-                  style={[
-                    estilos.tarjetaGrupo,
-                    seleccionado && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: seleccionado }}
-                >
-                  <View style={estilos.fila}>
-                    <Icono
-                      nombre={g.icono as any}
-                      tam={22}
-                      color={seleccionado ? Paleta.verde : Paleta.textoSuave}
-                    />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <T t={12} f="extra" c={seleccionado ? Paleta.verdeOscuro : Paleta.texto}>
-                        {g.nombre}
-                      </T>
-                      <T t={10} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
-                        {g.descripcion}
-                      </T>
-                    </View>
-                    {seleccionado ? (
-                      <Icono nombre="check-circle" tam={18} color={Paleta.verde} />
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-
             <T t={12.5} f="negrita" style={{ marginTop: 16, marginBottom: 8 }}>
-              Avisar a partir de
+              Avisar a partir de nivel
             </T>
             <Opciones
               valor={a.umbralNivel}
@@ -188,39 +98,117 @@ export default function Ajustes() {
               ]}
               alElegir={(v) => void m.fijarUmbral(v)}
             />
-            <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 8 }}>
-              Se avisa cuando la calidad del aire es {nivel(a.umbralNivel).adjetivo} o peor
-              ({nivel(a.umbralNivel).riesgo.toLowerCase()}, NOM-172).
+            <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 6, marginBottom: 14 }}>
+              Se notificará únicamente si el aire alcanza el nivel {nivel(a.umbralNivel).adjetivo} o peor ({nivel(a.umbralNivel).riesgo.toLowerCase()}, NOM-172).
             </T>
-          </Tarjeta>
-        </Seccion>
 
-        <Seccion titulo="DATOS">
-          <Tarjeta radio={16} style={{ padding: 0 }}>
-            <Pressable
-              style={estilos.agregar}
-              accessibilityRole="button"
-              onPress={() =>
-                setConfirmar({
-                  titulo: '¿Borrar historial?',
-                  texto: `Se borrarán las lecturas guardadas de ${m.dispositivo.nombre} en este teléfono. No se puede deshacer.`,
-                  accion: m.borrarHistorial,
-                })
-              }
-            >
-              <Icono nombre="broom" tam={20} color={Paleta.rojo} />
-              <View>
-                <T t={13} f="negrita">
-                  Borrar historial de {m.dispositivo.nombre}
+            <View style={{ height: 1, backgroundColor: Paleta.borde, marginVertical: 6 }} />
+
+            {/* — Resumen diario a hora libre — */}
+            <FilaInterruptor
+              titulo="Resumen diario programado"
+              detalle="Reporte condensado (promedio del día) a la hora que tú elijas."
+              valor={a.reporteProgramado ?? false}
+              alCambiar={(v) => void m.fijarReporteProgramado(v)}
+            />
+
+            {a.reporteProgramado ? (
+              <View style={{ marginTop: 12 }}>
+                <T t={11.5} f="negrita" style={{ marginBottom: 6 }}>
+                  Hora del reporte diario
                 </T>
-                <T t={10.5} c={Paleta.textoSuave}>
-                  {m.historial.length} muestras guardadas
-                </T>
+                <PickerHora
+                  valor={a.horaReporte ?? '08:00'}
+                  alCambiar={(h) => void m.fijarHoraReporte(h)}
+                />
               </View>
-            </Pressable>
+            ) : null}
+
+            <View style={{ height: 1, backgroundColor: Paleta.borde, marginVertical: 14 }} />
+
+            {/* — Alerta periódica — */}
+            <FilaInterruptor
+              titulo="Lectura periódica"
+              detalle="Envía los datos actuales del nodo cada cierta cantidad de horas."
+              valor={a.alertaPeriodica ?? false}
+              alCambiar={(v) => void m.fijarAlertaPeriodica(v)}
+            />
+
+            {a.alertaPeriodica ? (
+              <View style={{ marginTop: 12 }}>
+                <T t={11.5} f="negrita" style={{ marginBottom: 8 }}>
+                  Enviar cada cuántas horas
+                </T>
+                <Opciones
+                  valor={a.intervaloAlertaHoras ?? 3}
+                  opciones={[
+                    [1, '1 h'],
+                    [2, '2 h'],
+                    [3, '3 h'],
+                    [6, '6 h'],
+                    [12, '12 h'],
+                  ]}
+                  alElegir={(v) => void m.fijarIntervaloAlertaHoras(v)}
+                />
+              </View>
+            ) : null}
           </Tarjeta>
         </Seccion>
 
+        {/* ═══ GRUPO VULNERABLE (OPCIONAL) ═══ */}
+        <Seccion titulo="POBLACIÓN SENSIBLE (NOM-172)">
+          <Tarjeta radio={16}>
+            <FilaInterruptor
+              titulo="Pertenezco a un grupo vulnerable"
+              detalle="Habilita umbrales más estrictos según la NOM-172-SEMARNAT-2023."
+              valor={a.usarGrupoVulnerable ?? false}
+              alCambiar={(v) => void m.fijarUsarGrupoVulnerable(v)}
+            />
+            {a.usarGrupoVulnerable ? (
+              <>
+                <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 10, marginBottom: 10 }}>
+                  Selecciona tu grupo para aplicar los umbrales especiales:
+                </T>
+                {GRUPOS_VULNERABLES.map((g) => {
+                  const seleccionado = a.grupoVulnerable === g.id;
+                  return (
+                    <Pressable
+                      key={g.id}
+                      onPress={() => void m.fijarGrupoVulnerable(g.id)}
+                      style={[
+                        estilos.tarjetaGrupo,
+                        seleccionado && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },
+                      ]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: seleccionado }}
+                    >
+                      <View style={estilos.fila}>
+                        <Icono
+                          nombre={g.icono as any}
+                          tam={22}
+                          color={seleccionado ? Paleta.verde : Paleta.textoSuave}
+                        />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <T t={12} f="extra" c={seleccionado ? Paleta.verdeOscuro : Paleta.texto}>
+                            {g.nombre}
+                          </T>
+                          <T t={10} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+                            {g.descripcion}
+                          </T>
+                        </View>
+                        {seleccionado ? (
+                          <Icono nombre="check-circle" tam={18} color={Paleta.verde} />
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </>
+            ) : null}
+          </Tarjeta>
+        </Seccion>
+
+        {/* ═══ ADMINISTRACIÓN DEL SISTEMA ═══ */}
         <Seccion titulo="ADMINISTRACIÓN DEL SISTEMA">
           <Tarjeta radio={16} style={{ padding: 0 }}>
             <Pressable
@@ -228,13 +216,19 @@ export default function Ajustes() {
               accessibilityRole="button"
               onPress={() => setPanelAdminVisible(true)}
             >
-              <Icono nombre="shield-account" tam={22} color={Paleta.verde} />
+              <Icono
+                nombre={esAdmin ? 'shield-check' : 'shield-account'}
+                tam={22}
+                color={Paleta.verde}
+              />
               <View style={{ flex: 1 }}>
                 <T t={13} f="extra">
-                  Panel de Administradores
+                  {esAdmin ? 'Panel de Administradores' : 'Acceso de Administrador'}
                 </T>
                 <T t={10.5} c={Paleta.textoSuave}>
-                  Diagnóstico de capas, reportes de fallas y alta de estaciones.
+                  {esAdmin
+                    ? `Sesión activa (${adminActual?.nombre ?? 'Admin'}) · Estaciones, tópicos MQTT y diagnóstico.`
+                    : 'Inicia sesión para registrar estaciones y configurar el sistema.'}
                 </T>
               </View>
               <Icono nombre="chevron-right" tam={20} color={Paleta.textoTenue} />
@@ -243,7 +237,7 @@ export default function Ajustes() {
         </Seccion>
 
         <T t={10} c={Paleta.textoTenue} style={{ textAlign: 'center', marginTop: 20 }}>
-          Mi Entorno 1.0 · Sistema Comunitario de Calidad del Aire
+          AURA-172 v1.0 · Sistema Comunitario de Calidad del Aire
         </T>
       </ScrollView>
 
@@ -251,33 +245,6 @@ export default function Ajustes() {
         visible={panelAdminVisible}
         alCerrar={() => setPanelAdminVisible(false)}
       />
-
-      <FormularioDispositivo visible={formulario} existente={editando} alCerrar={() => setFormulario(false)} />
-
-      <Hoja visible={!!confirmar} alCerrar={() => setConfirmar(null)}>
-        <T t={17} f="extra">
-          {confirmar?.titulo}
-        </T>
-        <T t={12} c={Paleta.textoSuave} style={{ marginTop: 6, lineHeight: 18 }}>
-          {confirmar?.texto}
-        </T>
-        <View style={[estilos.fila, { marginTop: 18 }]}>
-          <View style={{ flex: 1 }}>
-            <BotonSecundario texto="Cancelar" alPresionar={() => setConfirmar(null)} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <BotonSecundario
-              texto="Confirmar"
-              color={Paleta.rojo}
-              alPresionar={async () => {
-                const accion = confirmar?.accion;
-                setConfirmar(null);
-                if (accion) await accion();
-              }}
-            />
-          </View>
-        </View>
-      </Hoja>
     </View>
   );
 }
@@ -290,25 +257,6 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
       </View>
       {children}
     </View>
-  );
-}
-
-function Nota({ children }: { children: ReactNode }) {
-  return (
-    <View style={estilos.nota}>
-      <Icono nombre="information-outline" tam={16} color={Paleta.textoSuave} />
-      <T t={10.5} c={Paleta.textoSuave} style={{ flex: 1, lineHeight: 15 }}>
-        {children}
-      </T>
-    </View>
-  );
-}
-
-function BotonIcono({ icono, etiqueta, alPresionar }: { icono: 'pencil-outline' | 'trash-can-outline'; etiqueta: string; alPresionar: () => void }) {
-  return (
-    <Pressable onPress={alPresionar} accessibilityRole="button" accessibilityLabel={etiqueta} hitSlop={6} style={{ padding: 6 }}>
-      <Icono nombre={icono} tam={19} color={Paleta.textoSuave} />
-    </Pressable>
   );
 }
 
@@ -338,14 +286,61 @@ function FilaInterruptor({
   );
 }
 
-function Opciones({
+/**
+ * Selector de hora libre: muestra todos los slots de media hora (00:00 → 23:30)
+ * en un scroll horizontal. El usuario elige la que quiera, sin opciones predefinidas.
+ */
+function PickerHora({ valor, alCambiar }: { valor: string; alCambiar: (h: string) => void }) {
+  const slots: string[] = [];
+  for (let h = 0; h < 24; h++) {
+    slots.push(`${String(h).padStart(2, '0')}:00`);
+    slots.push(`${String(h).padStart(2, '0')}:30`);
+  }
+  const fmt = (s: string) => {
+    const [hh, mm] = s.split(':');
+    const h = parseInt(hh, 10);
+    const sufijo = h < 12 ? 'AM' : 'PM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${h12}:${mm} ${sufijo}`;
+  };
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 6, paddingRight: 4 }}
+      style={{ marginHorizontal: -4 }}
+    >
+      {slots.map((s) => {
+        const activo = s === valor;
+        return (
+          <Pressable
+            key={s}
+            onPress={() => alCambiar(s)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: activo }}
+            style={[
+              estilos.opcionHora,
+              { backgroundColor: activo ? Paleta.verdeOscuro : Paleta.relleno },
+            ]}
+          >
+            <T t={11} f="negrita" c={activo ? '#FFFFFF' : Paleta.textoSuave}>
+              {fmt(s)}
+            </T>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function Opciones<T extends string | number>({
   valor,
   opciones,
   alElegir,
 }: {
-  valor: number;
-  opciones: [number, string][];
-  alElegir: (v: number) => void;
+  valor: T;
+  opciones: [T, string][];
+  alElegir: (v: T) => void;
 }) {
   return (
     <View style={[estilos.fila, { gap: 6 }]}>
@@ -353,7 +348,7 @@ function Opciones({
         const activa = v === valor;
         return (
           <Pressable
-            key={v}
+            key={String(v)}
             onPress={() => alElegir(v)}
             accessibilityRole="radio"
             accessibilityState={{ selected: activa }}
@@ -369,40 +364,42 @@ function Opciones({
   );
 }
 
-const EJEMPLO_MQTT = `{
-  "pm25": 12.0,
-  "co": 0.35,
-  "temp": 24.5,
-  "hum": 52.0,
-  "estado": "BUENA"
-}`;
-
-function GuiaEsp32() {
-  const mono = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+function OpcionModoConexion({
+  icono,
+  titulo,
+  detalle,
+  activa,
+  alSeleccionar,
+}: {
+  icono: any;
+  titulo: string;
+  detalle: string;
+  activa: boolean;
+  alSeleccionar: () => void;
+}) {
   return (
-    <Tarjeta radio={16}>
-      <T t={11} c={Paleta.textoSuave} style={{ lineHeight: 17 }}>
-        1. El ESP32 se conecta a Wi-Fi mediante WiFiManager.{'\n'}
-        2. Transmite en tiempo real al Broker MQTT público (broker.hivemq.com:1883).{'\n'}
-        3. Esta App se suscribe al tópico mediante WebSockets (puerto 8884).
-      </T>
-      <T t={11} f="negrita" style={{ marginTop: 12, marginBottom: 6 }}>
-        Tópico MQTT de Telemetría:
-      </T>
-      <View style={estilos.codigo}>
-        <T selectable t={11} style={{ fontFamily: mono }}>
-          colectivo/aire/nodo1
-        </T>
+    <Pressable
+      onPress={alSeleccionar}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: activa }}
+      style={[
+        estilos.tarjetaOpcionModo,
+        activa && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },
+      ]}
+    >
+      <View style={estilos.fila}>
+        <Icono nombre={icono} tam={22} color={activa ? Paleta.verde : Paleta.textoSuave} />
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <T t={12.5} f="extra" c={activa ? Paleta.verdeOscuro : Paleta.texto}>
+            {titulo}
+          </T>
+          <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+            {detalle}
+          </T>
+        </View>
+        {activa ? <Icono nombre="check-circle" tam={18} color={Paleta.verde} /> : null}
       </View>
-      <T t={11} c={Paleta.textoSuave} style={{ marginTop: 8, marginBottom: 6, lineHeight: 17 }}>
-        Payload JSON recibido en vivo:
-      </T>
-      <View style={estilos.codigo}>
-        <T selectable t={11} style={{ fontFamily: mono, lineHeight: 16 }}>
-          {EJEMPLO_MQTT}
-        </T>
-      </View>
-    </Tarjeta>
+    </Pressable>
   );
 }
 
@@ -424,15 +421,8 @@ const estilos = StyleSheet.create({
   linea: { height: 1, backgroundColor: Paleta.borde },
   agregar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16 },
   parrafo: { marginTop: 4, lineHeight: 15 },
-  nota: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: Paleta.relleno,
-  },
   opcion: { flex: 1, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  opcionHora: { height: 36, paddingHorizontal: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center', minWidth: 72 },
   codigo: { backgroundColor: Paleta.relleno, borderRadius: 10, padding: 10 },
   tarjetaGrupo: {
     padding: 12,
@@ -441,5 +431,18 @@ const estilos = StyleSheet.create({
     borderColor: Paleta.borde,
     backgroundColor: Paleta.superficie,
     marginBottom: 8,
+  },
+  tarjetaOpcionModo: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Paleta.borde,
+    backgroundColor: Paleta.superficie,
+  },
+  filaEstacionLimpia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
 });

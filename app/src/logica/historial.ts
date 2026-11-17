@@ -1,19 +1,27 @@
 import type { Lectura } from '../modelos/lectura';
 
-export type Metrica = 'temperatura' | 'humedad' | 'aire';
+export type Metrica = 'temperatura' | 'humedad' | 'aire' | 'pm25' | 'pm10' | 'co' | 'pm1';
 
 export const METRICAS: Record<
   Metrica,
   { titulo: string; corto: string; rangoMinimo: number; formato: (v: number) => string }
 > = {
-  temperatura: { titulo: 'Temperatura', corto: 'Temperatura', rangoMinimo: 6, formato: (v) => `${Math.round(v)}°` },
+  temperatura: { titulo: 'Temperatura', corto: 'Temperatura', rangoMinimo: 6, formato: (v) => `${Math.round(v)}°C` },
   humedad: { titulo: 'Humedad', corto: 'Humedad', rangoMinimo: 16, formato: (v) => `${Math.round(v)}%` },
-  aire: { titulo: 'Partículas PM2.5', corto: 'Aire', rangoMinimo: 20, formato: (v) => `${Math.round(v)}` },
+  aire: { titulo: 'Partículas PM2.5', corto: 'Aire', rangoMinimo: 20, formato: (v) => `${v.toFixed(1)} µg/m³` },
+  pm25: { titulo: 'Partículas PM2.5', corto: 'PM2.5', rangoMinimo: 15, formato: (v) => `${v.toFixed(1)} µg/m³` },
+  pm10: { titulo: 'Partículas PM10', corto: 'PM10', rangoMinimo: 25, formato: (v) => `${v.toFixed(1)} µg/m³` },
+  co: { titulo: 'Monóxido de Carbono (CO)', corto: 'CO', rangoMinimo: 1, formato: (v) => `${v.toFixed(2)} ppm` },
+  pm1: { titulo: 'Partículas PM1', corto: 'PM1', rangoMinimo: 10, formato: (v) => `${v.toFixed(1)} µg/m³` },
 };
 
 export function valorMetrica(m: Metrica, l: Lectura): number | undefined {
   if (m === 'temperatura') return l.temperatura;
   if (m === 'humedad') return l.humedad;
+  if (m === 'pm25') return l.pm25;
+  if (m === 'pm10') return l.pm10;
+  if (m === 'co') return l.co;
+  if (m === 'pm1') return l.pm1;
   return l.pm25;
 }
 

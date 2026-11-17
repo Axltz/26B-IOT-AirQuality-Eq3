@@ -18,9 +18,9 @@ export function iniciarClienteMqtt(
   topico = 'colectivo/aire/nodo1',
   onLectura?: (l: Lectura) => void,
 ) {
-  if (onLectura && !oyentes.includes(onLectura)) {
-    oyentes.push(onLectura);
-  }
+  // La app solo tiene un consumidor activo (el Monitor). Reemplazamos el
+  // oyente para no acumular callbacks cada vez que se cambia de estación.
+  if (onLectura) oyentes = [onLectura];
 
   if (clienteMqtt && topicoActual === topico && clienteMqtt.connected) {
     if (ultimaLecturaMqtt && onLectura) onLectura(ultimaLecturaMqtt);
@@ -34,6 +34,8 @@ export function iniciarClienteMqtt(
     clienteMqtt = null;
   }
 
+  // Al cambiar o reconectar no debe reutilizarse una lectura vieja de otro nodo.
+  ultimaLecturaMqtt = null;
   topicoActual = topico;
   const clientId = 'AppMovil_Eq3_' + Math.random().toString(16).substring(2, 8);
 

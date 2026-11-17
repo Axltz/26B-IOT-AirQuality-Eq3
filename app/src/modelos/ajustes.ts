@@ -1,15 +1,29 @@
-/** Un ESP32 (o el modo de demostración) que la app puede leer. */
+export type ModoConexion = 'cercana' | 'peor';
+
+/** Una estación de monitoreo de calidad del aire. */
 export interface Dispositivo {
   id: string;
+  /** Nombre amigable de la estación, p. ej. "Estación 1" */
   nombre: string;
-  /** IP o URL del ESP32, por ejemplo `192.168.1.50` o `http://mientorno.local` */
+  /** Zona o referencia comunitaria, p. ej. "Zona 1 · Sector Metropolitano" */
+  zona?: string;
+  /** Latitud geográfica aproximada */
+  lat?: number;
+  /** Longitud geográfica aproximada */
+  lng?: number;
+  /** Dirección del broker MQTT (p. ej. broker.hivemq.com) */
   direccion: string;
+  /**
+   * Tópico MQTT de telemetría al que se suscribe la app para recibir lecturas
+   * en tiempo real desde el broker.
+   * Ejemplo: `colectivo/aire/nodo1`
+   */
+  topicoMqtt: string;
   /** true = datos de demostración generados por la app (sin ESP32) */
   demo: boolean;
   /**
    * Token de notificaciones push registrado en este ESP32. Si existe, el
-   * ESP32 manda las alertas aunque la app esté cerrada y la app no repite el
-   * aviso local.
+   * ESP32 manda las alertas aunque la app esté cerrada.
    */
   tokenPush?: string;
 }
@@ -17,22 +31,38 @@ export interface Dispositivo {
 export interface Ajustes {
   dispositivos: Dispositivo[];
   activoId: string;
+  /** Modo de selección de estación: más cercana (GPS/proximidad) o peor calidad (centinela). */
+  modoConexion: ModoConexion;
   /** Mandar notificación cuando el aire empeore. */
   alertasActivas: boolean;
   /** Nivel NOM-172 a partir del cual se avisa (1 Aceptable, 2 Mala, 3 Muy mala). */
   umbralNivel: number;
   /** Otra notificación cuando el aire vuelva a niveles aceptables. */
   avisarMejora: boolean;
-  /** Cada cuántos segundos se consulta al ESP32. */
+  /** Cada cuántos segundos se consulta al ESP32 (tiempo real). */
   intervaloSeg: number;
-  /** ID del grupo vulnerable suscrito (ej. 'ninos', 'adultos_mayores', 'general') */
+  /** true = el usuario pertenece a un grupo vulnerable y quiere umbrales especiales. */
+  usarGrupoVulnerable: boolean;
+  /** ID del grupo vulnerable (ej. 'ninos', 'adultos_mayores'). Solo aplica si usarGrupoVulnerable=true. */
   grupoVulnerable?: string;
+  /** Activar resumen programado a una hora fija */
+  reporteProgramado: boolean;
+  /** Hora específica para recibir el reporte diario (HH:MM, 24 h, libre) */
+  horaReporte: string;
+  /** Enviar datos actuales cada X horas independientemente del estado */
+  alertaPeriodica: boolean;
+  /** Cada cuántas horas se manda la alerta periódica (1-12) */
+  intervaloAlertaHoras: number;
 }
 
 export const DISPOSITIVO_DEMO: Dispositivo = {
   id: 'nodo1',
-  nombre: 'ESP32 Comunitario (Nodo 1)',
+  nombre: 'Estación X',
+  zona: 'Zona 1 · Sector Metropolitano',
+  lat: 20.6575,
+  lng: -103.3255,
   direccion: 'broker.hivemq.com',
+  topicoMqtt: 'colectivo/aire/nodo1',
   demo: false,
 };
 
@@ -40,11 +70,17 @@ export function ajustesPorDefecto(): Ajustes {
   return {
     dispositivos: [DISPOSITIVO_DEMO],
     activoId: 'nodo1',
+    modoConexion: 'cercana',
     alertasActivas: true,
     umbralNivel: 2,
     avisarMejora: true,
     intervaloSeg: 5,
-    grupoVulnerable: 'ninos',
+    usarGrupoVulnerable: false,
+    grupoVulnerable: undefined,
+    reporteProgramado: true,
+    horaReporte: '08:00',
+    alertaPeriodica: false,
+    intervaloAlertaHoras: 3,
   };
 }
 
@@ -53,7 +89,7 @@ export function dispositivoActivo(a: Ajustes): Dispositivo {
 }
 
 export function descripcion(d: Dispositivo): string {
-  return d.demo ? 'Datos de demostración' : d.direccion;
+  return d.zona ?? 'Estación de Monitoreo Comunitario';
 }
 
 /**
@@ -81,6 +117,42 @@ export function direccionValida(texto: string): boolean {
   }
 }
 
+/**
+ * ¿La dirección del nodo es un broker MQTT (en vez de la IP de un ESP32 con
+ * servidor HTTP local)? Acepta el host de HiveMQ, una URL ws:// o wss://, o
+ * cualquier host que mencione "broker"/"mqtt".
+ */
+export function esBrokerMqtt(direccion: string): boolean {
+  const v = direccion.trim().toLowerCase();
+  if (!v) return true;
+  return (
+    v === 'broker.hivemq.com' ||
+    /^wss?:\/\//i.test(v) ||
+    v.includes('broker') ||
+    v.includes('mqtt') ||
+    v.includes('hivemq')
+  );
+}
+
+/**
+ * Convierte la dirección guardada en una URL WebSocket utilizable por la app.
+ *   `broker.hivemq.com`            → `wss://broker.hivemq.com:8884/mqtt`
+ *   `wss://mi-broker.com/mqtt`     → se respeta tal cual
+ *   `http://mi-broker.com:8084`    → `ws://mi-broker.com:8084`
+ */
+export function urlBrokerMqtt(direccion: string): string {
+  const v = direccion.trim();
+  if (!v) return 'wss://broker.hivemq.com:8884/mqtt';
+  if (/^wss?:\/\//i.test(v)) return v;
+  if (/^https?:\/\//i.test(v)) return v.replace(/^http/i, 'ws');
+  // Acepta también la forma usada por el firmware/simulador: mqtt://host:1883
+  const mqttUrl = v.match(/^mqtts?:\/\/([^/]+)/i);
+  if (mqttUrl) return `wss://${mqttUrl[1].replace(/:\d+$/, '')}:8884/mqtt`;
+  const host = v.replace(/\/.*$/, '');
+  if (host.includes(':')) return `wss://${host}/mqtt`;
+  return `wss://${host}:8884/mqtt`;
+}
+
 /** Lee ajustes guardados tolerando versiones anteriores o datos dañados. */
 export function ajustesDesdeJson(j: unknown): Ajustes {
   const base = ajustesPorDefecto();
@@ -93,8 +165,15 @@ export function ajustesDesdeJson(j: unknown): Ajustes {
         .map(
           (d): Dispositivo => ({
             id: d.id as string,
-            nombre: typeof d.nombre === 'string' ? d.nombre : 'ESP32',
-            direccion: typeof d.direccion === 'string' ? d.direccion : '',
+            nombre: typeof d.nombre === 'string' && d.nombre.trim() ? d.nombre : 'Estación X',
+            zona: typeof d.zona === 'string' ? d.zona : undefined,
+            lat: typeof d.lat === 'number' ? d.lat : undefined,
+            lng: typeof d.lng === 'number' ? d.lng : undefined,
+            direccion: typeof d.direccion === 'string' ? d.direccion : 'broker.hivemq.com',
+            topicoMqtt:
+              typeof d.topicoMqtt === 'string' && d.topicoMqtt
+                ? d.topicoMqtt
+                : `colectivo/aire/${d.id as string}`,
             demo: d.demo === true,
             tokenPush: typeof d.tokenPush === 'string' ? d.tokenPush : undefined,
           }),
@@ -102,14 +181,23 @@ export function ajustesDesdeJson(j: unknown): Ajustes {
     : [];
   const dispositivos = lista.length ? lista : base.dispositivos;
   const num = (v: unknown, def: number) => (typeof v === 'number' && Number.isFinite(v) ? v : def);
+  const modoRaw = o.modoConexion;
+  const modoConexion: ModoConexion = modoRaw === 'peor' ? 'peor' : 'cercana';
+
   return {
     dispositivos,
     activoId: typeof o.activoId === 'string' ? o.activoId : dispositivos[0].id,
+    modoConexion,
     alertasActivas: typeof o.alertasActivas === 'boolean' ? o.alertasActivas : true,
     umbralNivel: umbralDesdeJson(o),
     avisarMejora: typeof o.avisarMejora === 'boolean' ? o.avisarMejora : true,
     intervaloSeg: Math.min(300, Math.max(1, num(o.intervaloSeg, 5))),
-    grupoVulnerable: typeof o.grupoVulnerable === 'string' ? o.grupoVulnerable : 'ninos',
+    usarGrupoVulnerable: o.usarGrupoVulnerable === true,
+    grupoVulnerable: typeof o.grupoVulnerable === 'string' && o.grupoVulnerable ? o.grupoVulnerable : undefined,
+    reporteProgramado: typeof o.reporteProgramado === 'boolean' ? o.reporteProgramado : true,
+    horaReporte: typeof o.horaReporte === 'string' && o.horaReporte ? o.horaReporte : '08:00',
+    alertaPeriodica: typeof o.alertaPeriodica === 'boolean' ? o.alertaPeriodica : false,
+    intervaloAlertaHoras: typeof o.intervaloAlertaHoras === 'number' && o.intervaloAlertaHoras >= 1 ? Math.min(12, o.intervaloAlertaHoras) : 3,
   };
 }
 

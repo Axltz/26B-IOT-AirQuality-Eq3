@@ -49,7 +49,7 @@ function lectura(fecha, ruido = true) {
 // Nivel NOM-172 igual que el semáforo del ESP32: PM2.5 y CO, manda el peor.
 const NIVELES = ['BUENA', 'ACEPTABLE', 'MALA', 'MUY MALA', 'EXTREMADAMENTE MALA'];
 const nivelDe = (valor, cortes) => cortes.filter((c) => valor > c).length;
-const nivelNom172 = (l) => Math.max(nivelDe(l.pm25, [15, 25, 79, 130]), nivelDe(l.co, [5, 9, 12, 16]));
+const nivelNom172 = (l) => Math.max(nivelDe(l.pm25, [15, 33, 79, 130]), nivelDe(l.co, [5, 9, 12, 16]));
 
 async function enviarPush(titulo, cuerpo) {
   if (!tokens.size) return;

@@ -13,10 +13,16 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 const char* mqtt_server = "broker.hivemq.com";
 const int mqtt_port = 1883;
 
+// IDENTIFICADOR DE ESTA ESTACIÓN
+// Cambia a "nodo2", "nodo3", etc. para cada ESP32 adicional que compiles,
+// o déjalo en "nodo1" para la estación principal.
+const char* NODO_ID = "nodo1";
+String mqtt_topic = "colectivo/aire/" + String(NODO_ID);
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// CONFIGURACIÓN DE PINES Y SENSORES
+// CONFIGURACIÓN DE PINES Y SENSORES (INTACTOS)
 #define DHTPIN 4         // Pin G4 para el DHT22
 #define DHTTYPE DHT22
 
@@ -63,6 +69,8 @@ void reconnect_mqtt() {
   String clientId = "ESP32_Aire_Eq3_" + String(random(0xffff), HEX);
   if (client.connect(clientId.c_str())) {
     Serial.println(" [OK] Conectado.");
+    Serial.print("[MQTT] Publicando en: ");
+    Serial.println(mqtt_topic);
   } else {
     Serial.print(" [ERROR] rc=");
     Serial.println(client.state());
@@ -75,7 +83,7 @@ void setup() {
 
   // Inicializar LCD I2C
   lcd.init();                      
-  lcd.backlight(); // Enciende la luz de fondo azul
+  lcd.backlight(); 
   lcd.clear();
 
   dht.begin();
@@ -87,6 +95,8 @@ void setup() {
   setup_wifi_manager();
   
   client.setServer(mqtt_server, mqtt_port);
+  // Margen suficiente para el payload JSON completo en cualquier nodo.
+  client.setBufferSize(512);
 }
 
 void loop() {
@@ -107,12 +117,14 @@ void loop() {
   float humedad = dht.readHumidity();
   float temperatura = dht.readTemperature();
 
-  // 2. Lectura del MQ-7 (CO) - Corregido con el operador de multiplicación (*)
+  // 2. Lectura del MQ-7 (CO)
   int rawGas = analogRead(PIN_MQ7);
   float ppmCO = (rawGas / 4095.0) * 25.0; 
 
-  // 3. Lectura Directa y Confiable del PMS5003 (PM2.5)
+  // 3. Lectura Completa del PMS5003 (PM1, PM2.5 y PM10 atmosféricos)
+  static float pm1  = 0.0;
   static float pm25 = 0.0;
+  static float pm10 = 0.0;
   
   while (Serial2.available() > 32) {
     Serial2.read();
@@ -123,29 +135,46 @@ void loop() {
       if (Serial2.read() == 0x4D) {
         uint8_t buf[30];
         Serial2.readBytes(buf, 30);
+        
+        uint16_t valPM1  = (buf[8]  << 8) | buf[9];
         uint16_t valPM25 = (buf[10] << 8) | buf[11];
-        if (valPM25 < 1000) {
-          pm25 = (float)valPM25;
-        }
+        uint16_t valPM10 = (buf[12] << 8) | buf[13];
+
+        if (valPM1  < 1000) pm1  = (float)valPM1;
+        if (valPM25 < 1000) pm25 = (float)valPM25;
+        if (valPM10 < 1000) pm10 = (float)valPM10;
       }
     }
   }
 
   // 4. Compensación Higroscópica (NOM-172)
+  float pm1_compensado  = pm1;
   float pm25_compensado = pm25;
+  float pm10_compensado = pm10;
+
   if (!isnan(humedad) && humedad > 70.0) {
-    pm25_compensado = pm25 * 0.85; 
+    pm1_compensado  = pm1  * 0.85;
+    pm25_compensado = pm25 * 0.85;
+    pm10_compensado = pm10 * 0.85;
   }
 
-  // 5. Clasificación PM2.5 (NOM-172)
+  // 5. Clasificación PM2.5 (NOM-172-SEMARNAT-2023)
   int nivelPM25 = 0;
   if (pm25_compensado <= 15.0) nivelPM25 = 0;
-  else if (pm25_compensado <= 25.0) nivelPM25 = 1;
+  else if (pm25_compensado <= 33.0) nivelPM25 = 1;
   else if (pm25_compensado <= 79.0) nivelPM25 = 2;
   else if (pm25_compensado <= 130.0) nivelPM25 = 3;
   else nivelPM25 = 4;
 
-  // 6. Clasificación CO (NOM-172)
+  // 6. Clasificación PM10 (NOM-172-SEMARNAT-2023)
+  int nivelPM10 = 0;
+  if (pm10_compensado <= 50.0) nivelPM10 = 0;
+  else if (pm10_compensado <= 75.0) nivelPM10 = 1;
+  else if (pm10_compensado <= 155.0) nivelPM10 = 2;
+  else if (pm10_compensado <= 235.0) nivelPM10 = 3;
+  else nivelPM10 = 4;
+
+  // 7. Clasificación CO (NOM-172-SEMARNAT-2023)
   int nivelCO = 0;
   if (ppmCO <= 5.0) nivelCO = 0;
   else if (ppmCO <= 9.0) nivelCO = 1;
@@ -153,8 +182,16 @@ void loop() {
   else if (ppmCO <= 16.0) nivelCO = 3;
   else nivelCO = 4;
 
-  // 7. Contaminante Dominante y Semáforo LED de 5 Estados
-  int nivelDominante = max(nivelPM25, nivelCO);
+  // 8. Contaminante Dominante (peor de los 3 normados) y Semáforo LED
+  int nivelDominante = max(nivelPM25, max(nivelPM10, nivelCO));
+  String contaminanteDominante = "PM2.5";
+
+  if (nivelPM10 > nivelPM25 && nivelPM10 >= nivelCO) {
+    contaminanteDominante = "PM10";
+  } else if (nivelCO > nivelPM25 && nivelCO > nivelPM10) {
+    contaminanteDominante = "CO";
+  }
+
   String estadoCalidad = "";
 
   digitalWrite(LED_VERDE, LOW);
@@ -181,39 +218,68 @@ void loop() {
       break;
     case 4:
       digitalWrite(LED_ROJO, (millis() % 300 < 150) ? HIGH : LOW);
-      estadoCalidad = "EXT. MALA"; // Reducido para ajustarse a 16 chars
+      estadoCalidad = "EXT. MALA";
       break;
   }
 
-  // 8. Payload JSON y Envío por MQTT
+  // 9. Payload JSON Completo y Envío por MQTT
   String tempStr = isnan(temperatura) ? "0.0" : String(temperatura, 1);
   String humStr  = isnan(humedad)     ? "0.0" : String(humedad, 1);
 
-  String payload = "{\"pm25\":" + String(pm25_compensado, 1) +
+  String payload = "{\"pm1\":" + String(pm1_compensado, 1) +
+                   ",\"pm25\":" + String(pm25_compensado, 1) +
+                   ",\"pm10\":" + String(pm10_compensado, 1) +
                    ",\"co\":" + String(ppmCO, 2) +
                    ",\"temp\":" + tempStr +
                    ",\"hum\":" + humStr +
+                   ",\"nivel_pm25\":" + String(nivelPM25) +
+                   ",\"nivel_pm10\":" + String(nivelPM10) +
+                   ",\"nivel_co\":" + String(nivelCO) +
+                   ",\"nivel_general\":" + String(nivelDominante) +
+                   ",\"dominante\":\"" + contaminanteDominante + "\"" +
                    ",\"estado\":\"" + estadoCalidad + "\"}";
 
-  client.publish("colectivo/aire/nodo1", payload.c_str());
+  client.publish(mqtt_topic.c_str(), payload.c_str());
 
-  // 9. Mostrar datos en el LCD 1602 de forma limpia (16 caracteres exactos por línea)
-  String linea1 = "T:" + tempStr + "C H:" + humStr + "%";
+  // 10. Mostrar datos en el LCD 1602 con rotación dinámica de vistas (16 caracteres exactos por línea)
+  static bool vistaLcd = false;
+  vistaLcd = !vistaLcd;
+
+  String linea1 = "";
+  String linea2 = "";
+
+  if (vistaLcd) {
+    // Vista 1: Calidad del aire y contaminante dominante (lo más relevante)
+    linea1 = "AIRE: " + estadoCalidad;
+    linea2 = "DOM:" + contaminanteDominante;
+    if (contaminanteDominante == "PM2.5") {
+      linea2 += " " + String((int)pm25_compensado) + "ug";
+    } else if (contaminanteDominante == "CO") {
+      linea2 += " " + String(ppmCO, 1) + "p";
+    } else if (contaminanteDominante == "PM10") {
+      linea2 += " " + String((int)pm10_compensado) + "ug";
+    }
+  } else {
+    // Vista 2: Clima y lecturas complementarias
+    linea1 = "T:" + tempStr + "C H:" + humStr + "%";
+    linea2 = "P2.5:" + String((int)pm25_compensado) + " C:" + String(ppmCO, 1);
+  }
+
   while (linea1.length() < 16) linea1 += " ";
+  if (linea1.length() > 16) linea1 = linea1.substring(0, 16);
   lcd.setCursor(0, 0);
   lcd.print(linea1);
 
-  // Exactamente como en la foto de prueba: "P:0 C:0.4 BUENA" (15 caracteres, cabe perfecto)
-  String linea2 = "P:" + String((int)pm25_compensado) + " C:" + String(ppmCO, 1) + " " + estadoCalidad;
   while (linea2.length() < 16) linea2 += " ";
+  if (linea2.length() > 16) linea2 = linea2.substring(0, 16);
   lcd.setCursor(0, 1);
   lcd.print(linea2);
 
   // Depuración Serial
   Serial.println("\n------------------------------------------------");
-  Serial.printf("Temperatura: %s °C | Humedad: %s %%\n", tempStr.c_str(), humStr.c_str());
-  Serial.printf("Gas CO: %.2f PPM | Polvo PM2.5: %.1f ug/m3\n", ppmCO, pm25_compensado);
-  Serial.printf("Nivel Dominante: %d | Estado: [%s]\n", nivelDominante, estadoCalidad.c_str());
+  Serial.printf("Temp: %s °C | Hum: %s %%\n", tempStr.c_str(), humStr.c_str());
+  Serial.printf("PM1: %.1f | PM2.5: %.1f | PM10: %.1f ug/m3 | CO: %.2f PPM\n", pm1_compensado, pm25_compensado, pm10_compensado, ppmCO);
+  Serial.printf("Dominante: %s (Nivel %d) | Estado: [%s]\n", contaminanteDominante.c_str(), nivelDominante, estadoCalidad.c_str());
   Serial.print("JSON Enviado: ");
   Serial.println(payload);
   Serial.println("------------------------------------------------");

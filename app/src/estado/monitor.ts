@@ -1,5 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { evaluarAlerta, textoNotificacion, type EstadoAlerta, type TipoAviso } from '../logica/alertas';
 import { evaluarAire, type CalidadAire } from '../logica/calidadAire';
@@ -7,7 +7,9 @@ import type { Metrica } from '../logica/historial';
 import {
   ajustesPorDefecto,
   dispositivoActivo,
+  esBrokerMqtt,
   normalizarDireccion,
+  urlBrokerMqtt,
   type Ajustes,
   type Dispositivo,
 } from '../modelos/ajustes';
@@ -58,7 +60,7 @@ export class Monitor {
   historial: Lectura[] = [];
   alerta: EstadoAlerta | null = null;
   vista: Vista = 'resumen';
-  metrica: Metrica = 'temperatura';
+  metrica: Metrica = 'aire';
 
   private lecturaReal: Lectura | null = null;
   private lecturaSim: Lectura | null = null;
@@ -71,6 +73,8 @@ export class Monitor {
   private limpiezas: (() => void)[] = [];
   private oyentes = new Set<() => void>();
   private version = 0;
+  // Marca la última notificación cuando frecuencia es 'promedio'
+  private ultimoNotificado: number | null = null;
 
   // ------------------------------------------------------------ suscripción
 
@@ -157,8 +161,10 @@ export class Monitor {
     this.programarSondeo();
 
     // Iniciar cliente MQTT en tiempo real hacia el broker de HiveMQ
+    // El tópico se toma del dispositivo activo (cada nodo tiene el suyo).
     try {
-      iniciarClienteMqtt('wss://broker.hivemq.com:8884/mqtt', 'colectivo/aire/nodo1', (nueva) => {
+      const topico = this.dispositivo.topicoMqtt ?? 'colectivo/aire/nodo1';
+      iniciarClienteMqtt(urlBrokerMqtt(this.dispositivo.direccion), topico, (nueva) => {
         if (!this.dispositivo.demo) {
           this.lecturaReal = nueva;
           this.conexion = 'enLinea';
@@ -217,14 +223,16 @@ export class Monitor {
         // Si hay telemetría viva por MQTT en los últimos 15 segundos
         if (mqttLectura && Date.now() - mqttLectura.fecha < 15000) {
           nueva = mqttLectura;
-        } else if (d.direccion && d.direccion !== 'broker.hivemq.com') {
+        } else if (d.direccion && !esBrokerMqtt(d.direccion)) {
           // Si tiene configurada una IP local HTTP específica
           const url = normalizarDireccion(d.direccion);
           if (traerHistorial) await this.traerHistorialEsp32(d, url);
           nueva = await leerEsp32(url);
         } else {
           // Esperando telemetría MQTT del ESP32 real
-          throw new Error('Esperando datos del ESP32 vía MQTT en colectivo/aire/nodo1. Verifica que el nodo esté encendido.');
+          throw new Error(
+            `Esperando datos del ESP32 vía MQTT en ${d.topicoMqtt ?? 'colectivo/aire/nodo1'}. Verifica que el nodo esté encendido.`,
+          );
         }
       }
       if (d.id !== this.dispositivo.id) return; // cambió de dispositivo a medio camino
@@ -434,6 +442,95 @@ export class Monitor {
     await this.guardarAjustes({ ...this.ajustes, grupoVulnerable: grupoId });
   };
 
+  fijarUsarGrupoVulnerable = async (usar: boolean) => {
+    await this.guardarAjustes({
+      ...this.ajustes,
+      usarGrupoVulnerable: usar,
+      grupoVulnerable: usar ? this.ajustes.grupoVulnerable : undefined,
+    });
+  };
+
+  fijarReporteProgramado = async (activo: boolean) => {
+    await this.guardarAjustes({ ...this.ajustes, reporteProgramado: activo });
+  };
+
+  fijarHoraReporte = async (hora: string) => {
+    await this.guardarAjustes({ ...this.ajustes, horaReporte: hora });
+  };
+
+  fijarAlertaPeriodica = async (activa: boolean) => {
+    await this.guardarAjustes({ ...this.ajustes, alertaPeriodica: activa });
+  };
+
+  fijarIntervaloAlertaHoras = async (horas: number) => {
+    await this.guardarAjustes({ ...this.ajustes, intervaloAlertaHoras: horas });
+  };
+
+  fijarModoConexion = async (modo: 'cercana' | 'peor') => {
+    if (modo === 'cercana') {
+      await this._conectarPorGps();
+      return;
+    }
+    await this.guardarAjustes({ ...this.ajustes, modoConexion: modo });
+    if (modo === 'peor' && this.ajustes.dispositivos.length > 1) {
+      const peorNodo = this.ajustes.dispositivos[this.ajustes.dispositivos.length - 1];
+      if (peorNodo && peorNodo.id !== this.ajustes.activoId) {
+        await this.cambiarDispositivo(peorNodo.id);
+      }
+    }
+  };
+
+  /** Pide GPS; si se obtiene conecta al nodo más cercano. Si se deniega cae a 'peor'. */
+  private _conectarPorGps = async () => {
+    const conectarPeor = async () => {
+      await this.guardarAjustes({ ...this.ajustes, modoConexion: 'peor' });
+      if (this.ajustes.dispositivos.length > 1) {
+        const peor = this.ajustes.dispositivos[this.ajustes.dispositivos.length - 1];
+        if (peor && peor.id !== this.ajustes.activoId) await this.cambiarDispositivo(peor.id);
+      }
+    };
+
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      await conectarPeor();
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            const { latitude, longitude } = pos.coords;
+            const dispositivos = this.ajustes.dispositivos.filter(
+              (d) => d.lat !== undefined && d.lng !== undefined,
+            );
+            if (dispositivos.length === 0) {
+              await conectarPeor();
+              resolve();
+              return;
+            }
+            const dist = (d: { lat?: number; lng?: number }) => {
+              const dlat = (d.lat ?? 0) - latitude;
+              const dlng = (d.lng ?? 0) - longitude;
+              return dlat * dlat + dlng * dlng;
+            };
+            const cercano = dispositivos.reduce((a, b) => (dist(a) <= dist(b) ? a : b));
+            await this.guardarAjustes({ ...this.ajustes, modoConexion: 'cercana' });
+            if (cercano.id !== this.ajustes.activoId) await this.cambiarDispositivo(cercano.id);
+          } catch {
+            await conectarPeor();
+          }
+          resolve();
+        },
+        async () => {
+          await conectarPeor();
+          resolve();
+        },
+        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
+      );
+    });
+  };
+
+
   cambiarDispositivo = async (id: string) => {
     if (id === this.ajustes.activoId) return;
     await this.guardarHistorial();
@@ -441,6 +538,23 @@ export class Monitor {
     this.vista = 'resumen';
     await this.prepararDispositivo();
     this.avisarCambios();
+    // Reconectar MQTT al tópico y broker del nuevo dispositivo activo
+    const topico = this.dispositivo.topicoMqtt ?? 'colectivo/aire/nodo1';
+    try {
+      iniciarClienteMqtt(urlBrokerMqtt(this.dispositivo.direccion), topico, (nueva) => {
+        if (!this.dispositivo.demo) {
+          this.lecturaReal = nueva;
+          this.conexion = 'enLinea';
+          this.error = null;
+          this.ultimaActualizacion = nueva.fecha;
+          this.registrar(nueva);
+          void this.evaluar();
+          this.avisarCambios();
+        }
+      });
+    } catch (e) {
+      console.warn('Error reconectando MQTT al cambiar dispositivo:', e);
+    }
     await this.actualizar(true);
   };
 

@@ -76,8 +76,8 @@ El sistema clasifica la calidad del aire aplicando el principio del contaminante
 | Nivel de Calidad | PM2.5 ($\mu g/m^3$) | CO ($PPM$) | Semáforo LED | Color de Fondo en App |
 | :--- | :---: | :---: | :---: | :---: |
 | **Buena** | $0.0 - 15.0$ | $0.0 - 5.0$ | Verde Fijo | Verde Suave (`#E7F1E5`) |
-| **Aceptable** | $15.1 - 25.0$ | $5.1 - 9.0$ | Amarillo Fijo | Amarillo Suave (`#FBF3DC`) |
-| **Mala** | $25.1 - 79.0$ | $9.1 - 12.0$ | Amarillo + Rojo | Naranja Suave (`#FDEEDF`) |
+| **Aceptable** | $15.1 - 33.0$ | $5.1 - 9.0$ | Amarillo Fijo | Amarillo Suave (`#FBF3DC`) |
+| **Mala** | $33.1 - 79.0$ | $9.1 - 12.0$ | Amarillo + Rojo | Naranja Suave (`#FDEEDF`) |
 | **Muy Mala** | $79.1 - 130.0$ | $12.1 - 16.0$ | Rojo Fijo | Rojo Suave (`#FDE5DE`) |
 | **Extremadamente Mala** | $> 130.0$ | $> 16.0$ | Rojo Parpadeante | Morado Suave (`#F5E6F4`) |
 
@@ -143,9 +143,12 @@ Para evitar manipulaciones de usuarios comunes y garantizar un despliegue seguro
    - `PubSubClient` (por Nick O'Leary)
    - `DHT sensor library` (por Adafruit)
    - `LiquidCrystal I2C` (por Frank de Brabander)
-3. Seleccionar la placa **ESP32 Dev Module** y el puerto COM.
-4. Compilar y subir el programa.
-5. Si no hay red guardada, conectarse con un celular a la red Wi-Fi `ESP32_Aire_Config` para ingresar el SSID y contraseña del módem local.
+3. **Asignar un ID único a cada nodo.** En la línea `const char* NODO_ID = "nodo1";` cambia el valor por `nodo2`, `nodo3`, etc. antes de compilar cada ESP32. El tópico MQTT se forma automáticamente como `colectivo/aire/<NODO_ID>`.
+4. Seleccionar la placa **ESP32 Dev Module** y el puerto COM.
+5. Compilar y subir el programa.
+6. Si no hay red guardada, conectarse con un celular a la red Wi-Fi `ESP32_Aire_Config` para ingresar el SSID y contraseña del módem local.
+
+> **Nodos nuevos:** cada ESP32 debe tener un `NODO_ID` distinto y el mismo ID debe registrarse en el Panel de Administración de la app con su tópico `colectivo/aire/nodoX`. El broker por defecto es `broker.hivemq.com`.
 
 ### 2. Ejecución de la Aplicación Móvil
 ```bash
@@ -155,7 +158,7 @@ cd app
 # Instalar dependencias
 npm install
 
-# Correr suite de pruebas unitarias (11 tests automáticos)
+# Correr suite de pruebas unitarias (12 tests automáticos)
 npm test
 
 # Verificar tipos sin errores
@@ -167,7 +170,28 @@ npm start
 - Presiona `w` para abrir en navegador web.
 - O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS (asegúrate de que el celular esté en la misma red local que la computadora).
 
-### 3. Generación de APK Autónomo para Android (EAS Build)
+### 3. Demos sin hardware (ESP32 virtuales)
+
+La app puede probarse con nodos simulados que publican el mismo JSON por MQTT que el firmware real:
+
+```bash
+cd app
+
+# Tres nodos virtuales publicando cada 2 segundos en el broker público
+npm run demo:multinodo
+
+# Una sola publicación de prueba y salir
+node herramientas/demo-multinodo.mjs --once
+
+# Forzar aire malo en todos los nodos (para probar alertas)
+node herramientas/demo-multinodo.mjs --malo
+```
+
+Después, en la app entra a **Ajustes → Panel de Administración**, agrega los nodos con tópicos `colectivo/aire/nodo2` y `colectivo/aire/nodo3`, y usa **Activar** para cambiar la estación que se está visualizando.
+
+La guía completa de demos está en [`docs/demos/GUIA_DEMOS.md`](docs/demos/GUIA_DEMOS.md).
+
+### 4. Generación de APK Autónomo para Android (EAS Build)
 Para instalar la aplicación de forma permanente en cualquier dispositivo Android sin necesidad de encender la computadora ni usar Expo Go:
 ```bash
 cd app
