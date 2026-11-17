@@ -39,6 +39,8 @@ Resultado esperado: pruebas en verde y `tsc --noEmit` sin salida.
 
 5. En la app, la estación activa debe pasar a **En vivo** y mostrar los valores del sensor.
 
+El PMS5003 entrega **PM1, PM2.5 y PM10**; la NOM-172 clasifica PM2.5 y PM10, mientras que PM1 se muestra como dato complementario.
+
 **Qué observar:** el semáforo físico y la app coinciden en los cinco estados de la NOM-172; el hero jerarquiza el contaminante dominante; la gráfica muestra la tendencia de la sesión; la LCD alterna riesgo y microclima.
 
 ---

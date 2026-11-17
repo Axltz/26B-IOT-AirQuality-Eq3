@@ -26,7 +26,7 @@ Prototipo IoT de bajo costo que demuestra una **arquitectura de extremo a extrem
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        1. CAPA DE PERCEPCIÓN                           │
 │  • Microcontrolador: ESP32 DevKit (30 pines)                           │
-│  • PM2.5 / Partículas: Plantower PMS5003 (Láser óptico vía UART2)      │
+│  • PM1 / PM2.5 / PM10: Plantower PMS5003 (Láser óptico vía UART2)      │
 │  • Monóxido de Carbono: MQ-7 (Sensor electroquímico vía ADC G34)       │
 │  • Microclima: DHT22 (Temperatura y Humedad vía GPIO 4)                 │
 │  • Salidas Físicas: Semáforo LED 3 colores (G12, G14, G27) + LCD 1602  │
@@ -59,7 +59,7 @@ Prototipo IoT de bajo costo que demuestra una **arquitectura de extremo a extrem
 
 | Componente | Pin ESP32 | Tipo de Interfaz | Función |
 | :--- | :---: | :---: | :--- |
-| **PMS5003 (TX)** | **GPIO 17 (RX2)** | UART Serial (9600 baud) | Lectura de masa de partículas PM2.5 |
+| **PMS5003 (TX)** | **GPIO 17 (RX2)** | UART Serial (9600 baud) | Lectura de masa de partículas PM1, PM2.5 y PM10 |
 | **PMS5003 (RX)** | **GPIO 16 (TX2)** | UART Serial (9600 baud) | Control y comandos del sensor |
 | **MQ-7 (A0)** | **GPIO 34** | Analógica (ADC1) | Concentración de gas CO en PPM |
 | **DHT22 (DATA)** | **GPIO 4** | Digital (Single-bus) | Temperatura (°C) y Humedad Relativa (%) |
@@ -72,17 +72,19 @@ Prototipo IoT de bajo costo que demuestra una **arquitectura de extremo a extrem
 
 ## 📊 Norma Oficial Mexicana: NOM-172-SEMARNAT-2023
 
-El sistema clasifica la calidad del aire aplicando el principio del contaminante dominante entre **PM2.5** y **CO**:
+El PMS5003 mide **PM1, PM2.5 y PM10**; la NOM-172 define cortes oficiales solo para PM2.5 y PM10. Junto con el CO, el firmware evalúa el principio del contaminante dominante entre **PM2.5, PM10 y CO**:
 
-| Nivel de Calidad | PM2.5 ($\mu g/m^3$) | CO ($PPM$) | Semáforo LED | Color de Fondo en App |
-| :--- | :---: | :---: | :---: | :---: |
-| **Buena** | $0.0 - 15.0$ | $0.0 - 5.0$ | Verde Fijo | Verde Suave (`#E7F1E5`) |
-| **Aceptable** | $15.1 - 33.0$ | $5.1 - 9.0$ | Amarillo Fijo | Amarillo Suave (`#FBF3DC`) |
-| **Mala** | $33.1 - 79.0$ | $9.1 - 12.0$ | Amarillo + Rojo | Naranja Suave (`#FDEEDF`) |
-| **Muy Mala** | $79.1 - 130.0$ | $12.1 - 16.0$ | Rojo Fijo | Rojo Suave (`#FDE5DE`) |
-| **Extremadamente Mala** | $> 130.0$ | $> 16.0$ | Rojo Parpadeante | Morado Suave (`#F5E6F4`) |
+| Nivel de Calidad | PM2.5 ($\mu g/m^3$) | PM10 ($\mu g/m^3$) | CO ($PPM$) | Semáforo LED | Color de Fondo en App |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Buena** | $0.0 - 15.0$ | $0.0 - 50.0$ | $0.0 - 5.0$ | Verde Fijo | Verde Suave (`#E7F1E5`) |
+| **Aceptable** | $15.1 - 33.0$ | $50.1 - 75.0$ | $5.1 - 9.0$ | Amarillo Fijo | Amarillo Suave (`#FBF3DC`) |
+| **Mala** | $33.1 - 79.0$ | $75.1 - 155.0$ | $9.1 - 12.0$ | Amarillo + Rojo | Naranja Suave (`#FDEEDF`) |
+| **Muy Mala** | $79.1 - 130.0$ | $155.1 - 235.0$ | $12.1 - 16.0$ | Rojo Fijo | Rojo Suave (`#FDE5DE`) |
+| **Extremadamente Mala** | $> 130.0$ | $> 235.0$ | $> 16.0$ | Rojo Parpadeante | Morado Suave (`#F5E6F4`) |
 
-> **Compensación Higroscópica:** Conforme a la literatura técnica, si la humedad relativa supera el $70\%$, el ESP32 aplica un factor correctivo de $0.85$ sobre el sensor óptico láser para evitar lecturas infladas por vapor de agua condensado.
+> **PM1:** se mide y se muestra como variable complementaria; no participa en la clasificación normativa porque la NOM-172 no establece un corte para ese parámetro.
+
+> **Compensación Higroscópica:** Conforme a la literatura técnica, si la humedad relativa supera el $70\%$, el ESP32 aplica un factor correctivo de $0.85$ sobre las tres fracciones de partículas para evitar lecturas infladas por vapor de agua condensado.
 
 ---
 
@@ -90,7 +92,7 @@ El sistema clasifica la calidad del aire aplicando el principio del contaminante
 
 La aplicación integra perfiles normativos para proteger a los sectores más expuestos a daños pulmonares y cardiovasculares:
 - **Niñas y Niños (< 12 años):** Menor masa corporal y vías en desarrollo; alertas tempranas para cancelar o reprogramar actividades escolares al aire libre.
-- **Adultos Mayores (60+ años):** Reducción de la reserva cardiorrespiratoria ante picos de PM2.5.
+- **Adultos Mayores (60+ años):** Reducción de la reserva cardiorrespiratoria ante picos de material particulado (PM2.5 y PM10).
 - **Personas con Asma, EPOC o Cardiopatías:** Sensibilidad crítica ante incrementos agudos de partículas y gas CO.
 - **Personas Gestantes (Embarazo):** Protección materno-fetal contra hipoxia y toxicidad por monóxido de carbono.
 

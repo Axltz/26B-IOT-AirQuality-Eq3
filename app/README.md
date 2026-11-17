@@ -25,7 +25,7 @@ npm run build:android
 
 ## Flujo de datos
 
-1. El firmware publica cada 2 segundos en `colectivo/aire/<NODO_ID>` usando `broker.hivemq.com`.
+1. El PMS5003 mide PM1, PM2.5 y PM10 (µg/m³); el firmware publica esas tres fracciones cada 2 segundos en `colectivo/aire/<NODO_ID>` usando `broker.hivemq.com`.
 2. La app se suscribe por WebSockets (puerto 8884) y actualiza la pantalla en vivo.
 3. El payload incluye `pm1`, `pm25`, `pm10`, `co`, `temp`, `hum`, `nivel_pm25`, `nivel_pm10`, `nivel_co`, `nivel_general`, `dominante` y `estado`.
 4. El historial se mantiene en memoria de sesión (colo FIFO de 30 muestras) para no saturar el almacenamiento del dispositivo.
