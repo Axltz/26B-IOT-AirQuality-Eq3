@@ -30,7 +30,7 @@ export function T({
   return <Text {...resto} style={[{ fontSize: t, fontFamily: Fuente[f], color: c }, style]} />;
 }
 
-/** Etiqueta pequeña en mayúsculas ("MI ENTORNO", "ÚLTIMAS HORAS"...). */
+/** Etiqueta pequeña en mayúsculas ("AURA-172", "ÚLTIMAS HORAS"...). */
 export function Etiqueta({ children, c = Paleta.textoTenue }: { children: ReactNode; c?: string }) {
   return (
     <T t={9.5} f="negrita" c={c} style={{ letterSpacing: 1.3 }}>

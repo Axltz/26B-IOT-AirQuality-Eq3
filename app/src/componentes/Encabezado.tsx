@@ -4,7 +4,7 @@ import { useMonitor } from '../estado/monitor';
 import { Paleta } from '../tema';
 import { Etiqueta, Icono, PuntoEstado, T, sombraSuave } from './comunes';
 
-/** "MI ENTORNO / nombre estación" solo muestra el nodo activo sin abrir selector. */
+/** "AURA-172 / nombre estación" solo muestra el nodo activo sin abrir selector. */
 export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
   const m = useMonitor();
   const colorConexion =
@@ -12,7 +12,7 @@ export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
   return (
     <View style={estilos.fila}>
       <View style={{ flexShrink: 1, paddingVertical: 4 }}>
-        <Etiqueta>MI ENTORNO</Etiqueta>
+        <Etiqueta>AURA-172</Etiqueta>
         <View style={estilos.nombre}>
           <Icono nombre="map-marker-outline" tam={16} color={Paleta.verde} />
           <T t={17} f="extra" numberOfLines={1} style={{ flexShrink: 1 }}>

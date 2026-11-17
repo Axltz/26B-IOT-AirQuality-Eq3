@@ -237,7 +237,7 @@ export default function Ajustes() {
         </Seccion>
 
         <T t={10} c={Paleta.textoTenue} style={{ textAlign: 'center', marginTop: 20 }}>
-          AURA-172 v1.0 · Sistema Comunitario de Calidad del Aire
+          AURA-172 v1.0 · Alerta Urbana de Riesgo Ambiental
         </T>
       </ScrollView>
 

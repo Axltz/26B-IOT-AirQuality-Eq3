@@ -1,5 +1,5 @@
-// Prepara esta computadora para abrir Mi Entorno en el teléfono.
-// Lo llama "Iniciar Mi Entorno.bat". La primera vez guía paso a paso:
+// Prepara esta computadora para abrir AURA-172 en el teléfono.
+// El script de inicio local la llama. La primera vez guía paso a paso:
 //   1. Crear una cuenta gratis de Expo (si no tienes).
 //   2. Iniciar sesión en esta computadora (queda guardada).
 //   3. Registrar el proyecto en tu cuenta (Expo Go en iPhone lo exige).
@@ -39,7 +39,7 @@ function cuentaActual() {
   }
 }
 
-// "Iniciar Mi Entorno.bat" usa esto para mostrar la cuenta en pantalla.
+// El script de inicio usa esto para mostrar la cuenta en pantalla.
 if (process.argv.includes('--cuenta')) {
   console.log(cuentaActual() ?? '');
   process.exit(0);

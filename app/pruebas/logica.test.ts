@@ -71,7 +71,7 @@ describe('JSON del ESP32', () => {
 
   test('lee el nivel del semáforo (nivel_nom172) del programa del ESP32', () => {
     const l = lecturaDesdeJson({
-      dispositivo: 'Mi Entorno', temperatura: 24.1, pm1: 9, pm25: 13.6, pm10: 17, co: 2.35,
+      dispositivo: 'AURA-172', temperatura: 24.1, pm1: 9, pm25: 13.6, pm10: 17, co: 2.35,
       nivel_nom172: 2, estado_nom172: 'MALA', pms5003: 'ok',
     });
     assert.equal(l.nivelReportado, 2);

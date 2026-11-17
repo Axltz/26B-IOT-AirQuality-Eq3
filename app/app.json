@@ -14,7 +14,7 @@
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
         },
-        "NSLocalNetworkUsageDescription": "Mi Entorno se conecta a tu ESP32 en la red Wi-Fi de tu casa para leer la temperatura, la humedad y la calidad del aire.",
+        "NSLocalNetworkUsageDescription": "AURA-172 se conecta a tu ESP32 en la red Wi-Fi para leer la temperatura, la humedad y la calidad del aire.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
