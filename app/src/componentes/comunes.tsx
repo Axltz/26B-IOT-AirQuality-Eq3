@@ -171,6 +171,7 @@ export function Interruptor({
       accessibilityLabel={etiqueta}
       onPress={() => alCambiar(!valor)}
       hitSlop={8}
+      android_ripple={{ color: 'transparent' }}
     >
       <Animated.View
         style={[

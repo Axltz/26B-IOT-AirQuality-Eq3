@@ -155,6 +155,13 @@ test('alertas: abre, escala, cierra y respeta el enfriamiento', () => {
   assert.equal(paso(8, ahora + 6 * 60_000).aviso, 'mejoro');
 });
 
+test('el enlace automático empieza en mayor riesgo, sin pedir ubicación', () => {
+  assert.equal(ajustesPorDefecto().modoConexion, 'peor');
+  assert.equal(ajustesDesdeJson({}).modoConexion, 'peor');
+  // Una preferencia explícita de GPS sí se respeta.
+  assert.equal(ajustesDesdeJson({ modoConexion: 'cercana' }).modoConexion, 'cercana');
+});
+
 test('todas las opciones de notificación empiezan desactivadas (opt-in)', () => {
   for (const a of [ajustesPorDefecto(), ajustesDesdeJson({})]) {
     assert.equal(a.alertasActivas, false);
@@ -196,7 +203,7 @@ describe('Enlace automático de estación', () => {
     assert.equal(estacionMasCercana([nodo('sin-coords')], 20, -100), null);
   });
 
-  test('centinela elige el peor nivel, no el último nodo de la lista', () => {
+  test('mayor riesgo elige el peor nivel, no el último nodo de la lista', () => {
     const nodos = [nodo('bueno'), nodo('malo'), nodo('ultimo')];
     const lecturas = {
       'colectivo/aire/bueno': { fecha: ahora, pm25: 8 },
@@ -206,7 +213,7 @@ describe('Enlace automático de estación', () => {
     assert.equal(estacionPeorRiesgo(nodos, lecturas)!.id, 'malo');
   });
 
-  test('centinela respeta el nivel del semáforo y desempata por PM2.5', () => {
+  test('mayor riesgo respeta el nivel del semáforo y desempata por PM2.5', () => {
     const nodos = [nodo('a'), nodo('b')];
     // 'b' tiene más PM2.5, pero su ESP32 reportó Buena: gana 'a' (Muy mala).
     assert.equal(
@@ -225,7 +232,7 @@ describe('Enlace automático de estación', () => {
     );
   });
 
-  test('centinela ignora nodos sin lectura y no inventa un ganador', () => {
+  test('mayor riesgo ignora nodos sin lectura y no inventa un ganador', () => {
     const nodos = [nodo('sin-datos'), nodo('ultimo')];
     assert.equal(
       estacionPeorRiesgo(nodos, {

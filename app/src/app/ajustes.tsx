@@ -58,7 +58,7 @@ export default function Ajustes() {
               <OpcionModoConexion
                 icono="alert-decagram-outline"
                 titulo="Mayor riesgo ambiental"
-                detalle="Modo Centinela: se vincula al nodo con peor calidad de aire para prevenirte."
+                detalle="Se vincula al nodo con peor calidad de aire para prevenirte."
                 activa={a.modoConexion === 'peor'}
                 alSeleccionar={() => void m.fijarModoConexion('peor')}
               />
@@ -322,6 +322,7 @@ function PickerHora({ valor, alCambiar }: { valor: string; alCambiar: (h: string
             onPress={() => alCambiar(s)}
             accessibilityRole="radio"
             accessibilityState={{ selected: activo }}
+            android_ripple={{ color: 'transparent' }}
             style={[
               estilos.opcionHora,
               { backgroundColor: activo ? Paleta.verdeOscuro : Paleta.relleno },
@@ -356,6 +357,7 @@ function Opciones<T extends string | number>({
             onPress={() => alElegir(v)}
             accessibilityRole="radio"
             accessibilityState={{ selected: activa }}
+            android_ripple={{ color: 'transparent' }}
             style={[estilos.opcion, { backgroundColor: activa ? Paleta.verdeOscuro : Paleta.relleno }]}
           >
             <T t={11.5} f="negrita" c={activa ? '#FFFFFF' : Paleta.textoSuave}>
@@ -386,6 +388,7 @@ function OpcionModoConexion({
       onPress={alSeleccionar}
       accessibilityRole="radio"
       accessibilityState={{ selected: activa }}
+      android_ripple={{ color: 'transparent' }}
       style={[
         estilos.tarjetaOpcionModo,
         activa && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },

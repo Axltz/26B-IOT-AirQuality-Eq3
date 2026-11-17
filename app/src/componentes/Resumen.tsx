@@ -457,12 +457,14 @@ function TarjetaMetrica(p: {
       accessibilityRole="button"
       accessibilityState={{ selected: activa }}
       accessibilityLabel={`${etiqueta}: ${p.valor}, ${p.detalle}`}
-      style={[
+      android_ripple={{ color: 'transparent' }}
+      style={({ pressed }) => [
         estilos.metrica,
         activa && [
           { borderColor: alfa(p.color, 0.6), borderWidth: 1.3, backgroundColor: alfa(p.color, 0.035) },
           sombraSuave,
         ],
+        pressed && { opacity: 0.85 },
       ]}
     >
       <ChipIcono nombre={p.icono} color={p.color} fondo={p.fondo} tam={26} />
@@ -650,6 +652,7 @@ function AnalisisAire({
                 onPress={() => alCambiarTabParticulas(t)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: seleccionada }}
+                android_ripple={{ color: 'transparent' }}
                 style={[
                   estilos.pillTab,
                   seleccionada && { backgroundColor: Paleta.verdeOscuro, borderColor: Paleta.verdeOscuro },
@@ -748,6 +751,7 @@ function AnalisisAire({
 
         <Pressable
           onPress={alSeleccionarCO}
+          android_ripple={{ color: 'transparent' }}
           style={[
             estilos.tarjetaParametro,
             { marginTop: 12 },

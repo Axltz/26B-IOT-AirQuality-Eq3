@@ -8,7 +8,7 @@ import { Paleta } from '../tema';
  * Hoja que sube desde abajo.
  *
  * Nota: la selección manual de estación se retiró a propósito. La app enlaza
- * siempre de forma automática (estación más cercana por GPS o modo centinela),
+ * siempre de forma automática (mayor riesgo ambiental o estación más cercana por GPS),
  * y el alta/edición de nodos vive únicamente en el Panel de Administración.
  */
 export function Hoja({ visible, alCerrar, children }: { visible: boolean; alCerrar: () => void; children: ReactNode }) {

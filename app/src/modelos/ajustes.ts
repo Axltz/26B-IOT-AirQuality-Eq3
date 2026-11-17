@@ -31,7 +31,7 @@ export interface Dispositivo {
 export interface Ajustes {
   dispositivos: Dispositivo[];
   activoId: string;
-  /** Modo de selección de estación: más cercana (GPS/proximidad) o peor calidad (centinela). */
+  /** Modo de selección de estación: mayor riesgo (por defecto) o más cercana (GPS/proximidad). */
   modoConexion: ModoConexion;
   /** Mandar notificación cuando el aire empeore. */
   alertasActivas: boolean;
@@ -70,7 +70,7 @@ export function ajustesPorDefecto(): Ajustes {
   return {
     dispositivos: [DISPOSITIVO_DEMO],
     activoId: 'nodo1',
-    modoConexion: 'cercana',
+    modoConexion: 'peor',
     alertasActivas: false,
     umbralNivel: 2,
     avisarMejora: false,
@@ -182,7 +182,8 @@ export function ajustesDesdeJson(j: unknown): Ajustes {
   const dispositivos = lista.length ? lista : base.dispositivos;
   const num = (v: unknown, def: number) => (typeof v === 'number' && Number.isFinite(v) ? v : def);
   const modoRaw = o.modoConexion;
-  const modoConexion: ModoConexion = modoRaw === 'peor' ? 'peor' : 'cercana';
+  // Si no hay preferencia guardada, empieza en "mayor riesgo" (sin pedir GPS).
+  const modoConexion: ModoConexion = modoRaw === 'cercana' ? 'cercana' : 'peor';
 
   return {
     dispositivos,

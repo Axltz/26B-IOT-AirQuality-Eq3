@@ -506,7 +506,7 @@ export class Monitor {
   };
 
   /**
-   * Modo Centinela: sondea todos los nodos, compara su nivel NOM-172 y enlaza
+   * Sondea todos los nodos, compara su nivel NOM-172 y enlaza
    * el que tenga peor calidad de aire. Antes se elegía el último de la lista,
    * que no tiene nada que ver con el riesgo real.
    */
