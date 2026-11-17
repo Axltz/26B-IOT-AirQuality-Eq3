@@ -62,6 +62,10 @@ export default function Ajustes() {
                 activa={a.modoConexion === 'peor'}
                 alSeleccionar={() => void m.fijarModoConexion('peor')}
               />
+              <T t={10} c={Paleta.textoSuave} style={{ marginTop: 2 }}>
+                «Más cercana» requiere ubicación y coordenadas en los nodos. «Mayor riesgo» sondea
+                todos los nodos y tarda unos segundos.
+              </T>
             </View>
           </Tarjeta>
         </Seccion>

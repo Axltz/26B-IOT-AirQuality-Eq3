@@ -6,11 +6,13 @@ import { ESPERA_MEJORA_MS, evaluarAlerta, type EstadoAlerta, type Evaluacion } f
 import { evaluarAire } from '../src/logica/calidadAire';
 import { sensacionTermica } from '../src/logica/confort';
 import { puntosUltimasHoras } from '../src/logica/historial';
+import { estacionMasCercana, estacionPeorRiesgo } from '../src/logica/seleccionEstacion';
 import {
   ajustesDesdeJson,
   esBrokerMqtt,
   normalizarDireccion,
   urlBrokerMqtt,
+  type Dispositivo,
 } from '../src/modelos/ajustes';
 import { lecturaDesdeJson } from '../src/modelos/lectura';
 
@@ -158,4 +160,66 @@ test('el umbral guardado con el ICA anterior se convierte a nivel NOM-172', () =
   assert.equal(ajustesDesdeJson({ umbralIca: 201 }).umbralNivel, 3);
   assert.equal(ajustesDesdeJson({ umbralNivel: 3 }).umbralNivel, 3);
   assert.equal(ajustesDesdeJson({}).umbralNivel, 2);
+});
+
+describe('Enlace automático de estación', () => {
+  const nodo = (id: string, extra: Partial<Dispositivo> = {}): Dispositivo => ({
+    id,
+    nombre: id,
+    direccion: 'broker.hivemq.com',
+    topicoMqtt: `colectivo/aire/${id}`,
+    demo: false,
+    ...extra,
+  });
+
+  test('estación más cercana usa coordenadas reales, no el orden de la lista', () => {
+    const nodos = [
+      nodo('sur', { lat: 20.5, lng: -103.3 }),
+      nodo('centro', { lat: 20.67, lng: -103.34 }),
+      nodo('sin-coords'),
+    ];
+    assert.equal(estacionMasCercana(nodos, 20.67, -103.35)!.id, 'centro');
+    assert.equal(estacionMasCercana(nodos, 20.5, -103.3)!.id, 'sur');
+    assert.equal(estacionMasCercana([nodo('sin-coords')], 20, -100), null);
+  });
+
+  test('centinela elige el peor nivel, no el último nodo de la lista', () => {
+    const nodos = [nodo('bueno'), nodo('malo'), nodo('ultimo')];
+    const lecturas = {
+      'colectivo/aire/bueno': { fecha: ahora, pm25: 8 },
+      'colectivo/aire/malo': { fecha: ahora, pm25: 90 },
+      'colectivo/aire/ultimo': { fecha: ahora, pm25: 20 },
+    };
+    assert.equal(estacionPeorRiesgo(nodos, lecturas)!.id, 'malo');
+  });
+
+  test('centinela respeta el nivel del semáforo y desempata por PM2.5', () => {
+    const nodos = [nodo('a'), nodo('b')];
+    // 'b' tiene más PM2.5, pero su ESP32 reportó Buena: gana 'a' (Muy mala).
+    assert.equal(
+      estacionPeorRiesgo(nodos, {
+        'colectivo/aire/a': { fecha: ahora, pm25: 40, nivelReportado: 3 },
+        'colectivo/aire/b': { fecha: ahora, pm25: 100, nivelReportado: 0 },
+      })!.id,
+      'a',
+    );
+    assert.equal(
+      estacionPeorRiesgo(nodos, {
+        'colectivo/aire/a': { fecha: ahora, pm25: 40 },
+        'colectivo/aire/b': { fecha: ahora, pm25: 100 },
+      })!.id,
+      'b',
+    );
+  });
+
+  test('centinela ignora nodos sin lectura y no inventa un ganador', () => {
+    const nodos = [nodo('sin-datos'), nodo('ultimo')];
+    assert.equal(
+      estacionPeorRiesgo(nodos, {
+        'colectivo/aire/ultimo': { fecha: ahora, pm25: 5 },
+      })!.id,
+      'ultimo',
+    );
+    assert.equal(estacionPeorRiesgo(nodos, {}), null);
+  });
 });

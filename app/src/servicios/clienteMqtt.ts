@@ -1,5 +1,5 @@
 import mqtt, { type MqttClient } from 'mqtt';
-import { lecturaDesdeJson, type Lectura } from '../modelos/lectura';
+import { lecturaDesdeJson, lecturaVacia, type Lectura } from '../modelos/lectura';
 
 export class ErrorEsp32 extends Error {}
 
@@ -95,5 +95,90 @@ export function obtenerUltimaLecturaMqtt(): Lectura | null {
 
 export function estadoMqtt(): string {
   return estadoConexionMqtt;
+}
+
+export interface NodoASondear {
+  /** URL WebSocket del broker (ver `urlBrokerMqtt`). */
+  url: string;
+  /** Tópico MQTT del nodo. */
+  topico: string;
+}
+
+/**
+ * Sondea varios nodos a la vez y devuelve la primera lectura válida recibida
+ * en cada tópico. Usa clientes temporales (uno por broker) que se cierran al
+ * terminar, sin interferir con el cliente principal de la estación activa.
+ */
+export function sondearNodos(
+  nodos: NodoASondear[],
+  esperaMs = 4000,
+): Promise<Record<string, Lectura>> {
+  return new Promise((resolve) => {
+    const lecturas: Record<string, Lectura> = {};
+    const porBroker = new Map<string, string[]>();
+    for (const n of nodos) {
+      if (!n.topico) continue;
+      const lista = porBroker.get(n.url) ?? [];
+      if (!lista.includes(n.topico)) lista.push(n.topico);
+      porBroker.set(n.url, lista);
+    }
+    const total = [...porBroker.values()].reduce((n, lista) => n + lista.length, 0);
+    if (total === 0) {
+      resolve(lecturas);
+      return;
+    }
+
+    const clientes: MqttClient[] = [];
+    let temporizador: ReturnType<typeof setTimeout> | undefined;
+    let terminado = false;
+    const finalizar = () => {
+      if (terminado) return;
+      terminado = true;
+      if (temporizador) clearTimeout(temporizador);
+      for (const c of clientes) {
+        try {
+          c.end(true);
+        } catch {}
+      }
+      resolve(lecturas);
+    };
+    temporizador = setTimeout(finalizar, esperaMs);
+
+    for (const [url, topicos] of porBroker) {
+      let cliente: MqttClient;
+      try {
+        cliente = mqtt.connect(url, {
+          clientId: `AURA172_Sondeo_${Math.random().toString(16).slice(2, 10)}`,
+          clean: true,
+          connectTimeout: Math.min(2500, esperaMs),
+          reconnectPeriod: 0,
+        });
+      } catch {
+        continue;
+      }
+      clientes.push(cliente);
+      cliente.on('connect', () => {
+        cliente.subscribe(topicos, (err) => {
+          if (err) console.error('[MQTT] Error al sondear tópicos:', err);
+        });
+      });
+      cliente.on('message', (topico, mensaje) => {
+        if (terminado || lecturas[topico]) return;
+        try {
+          const lectura = lecturaDesdeJson(
+            JSON.parse(mensaje.toString()) as Record<string, unknown>,
+          );
+          if (lecturaVacia(lectura)) return;
+          lecturas[topico] = lectura;
+          if (Object.keys(lecturas).length === total) finalizar();
+        } catch {
+          // Un payload inválido de un nodo no debe impedir sondear los demás.
+        }
+      });
+      cliente.on('error', () => {
+        // El timeout global decide cuándo terminar.
+      });
+    }
+  });
 }
 

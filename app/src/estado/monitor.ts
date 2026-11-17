@@ -4,6 +4,7 @@ import { AppState, Platform } from 'react-native';
 import { evaluarAlerta, textoNotificacion, type EstadoAlerta, type TipoAviso } from '../logica/alertas';
 import { evaluarAire, type CalidadAire } from '../logica/calidadAire';
 import type { Metrica } from '../logica/historial';
+import { estacionMasCercana, estacionPeorRiesgo } from '../logica/seleccionEstacion';
 import {
   ajustesPorDefecto,
   dispositivoActivo,
@@ -26,6 +27,7 @@ import {
   detenerClienteMqtt,
   iniciarClienteMqtt,
   obtenerUltimaLecturaMqtt,
+  sondearNodos,
 } from '../servicios/clienteMqtt';
 import {
   abiertaDesdeNotificacion,
@@ -471,63 +473,53 @@ export class Monitor {
       await this._conectarPorGps();
       return;
     }
-    await this.guardarAjustes({ ...this.ajustes, modoConexion: modo });
-    if (modo === 'peor' && this.ajustes.dispositivos.length > 1) {
-      const peorNodo = this.ajustes.dispositivos[this.ajustes.dispositivos.length - 1];
-      if (peorNodo && peorNodo.id !== this.ajustes.activoId) {
-        await this.cambiarDispositivo(peorNodo.id);
-      }
-    }
+    await this._conectarPorPeorRiesgo();
   };
 
-  /** Pide GPS; si se obtiene conecta al nodo más cercano. Si se deniega cae a 'peor'. */
+  /** Pide GPS y enlaza el nodo con coordenadas más próximo a la ubicación real. */
   private _conectarPorGps = async () => {
-    const conectarPeor = async () => {
-      await this.guardarAjustes({ ...this.ajustes, modoConexion: 'peor' });
-      if (this.ajustes.dispositivos.length > 1) {
-        const peor = this.ajustes.dispositivos[this.ajustes.dispositivos.length - 1];
-        if (peor && peor.id !== this.ajustes.activoId) await this.cambiarDispositivo(peor.id);
-      }
-    };
-
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      await conectarPeor();
-      return;
-    }
+    await this.guardarAjustes({ ...this.ajustes, modoConexion: 'cercana' });
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     await new Promise<void>((resolve) => {
       navigator.geolocation.getCurrentPosition(
-        async (pos) => {
+        (pos) => {
           try {
-            const { latitude, longitude } = pos.coords;
-            const dispositivos = this.ajustes.dispositivos.filter(
-              (d) => d.lat !== undefined && d.lng !== undefined,
+            const cercana = estacionMasCercana(
+              this.ajustes.dispositivos,
+              pos.coords.latitude,
+              pos.coords.longitude,
             );
-            if (dispositivos.length === 0) {
-              await conectarPeor();
-              resolve();
+            if (cercana && cercana.id !== this.ajustes.activoId) {
+              void this.cambiarDispositivo(cercana.id).finally(resolve);
               return;
             }
-            const dist = (d: { lat?: number; lng?: number }) => {
-              const dlat = (d.lat ?? 0) - latitude;
-              const dlng = (d.lng ?? 0) - longitude;
-              return dlat * dlat + dlng * dlng;
-            };
-            const cercano = dispositivos.reduce((a, b) => (dist(a) <= dist(b) ? a : b));
-            await this.guardarAjustes({ ...this.ajustes, modoConexion: 'cercana' });
-            if (cercano.id !== this.ajustes.activoId) await this.cambiarDispositivo(cercano.id);
           } catch {
-            await conectarPeor();
+            // Sin ubicación válida se conserva el nodo actual; no se cambia el modo.
           }
           resolve();
         },
-        async () => {
-          await conectarPeor();
-          resolve();
-        },
+        () => resolve(),
         { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
       );
     });
+  };
+
+  /**
+   * Modo Centinela: sondea todos los nodos, compara su nivel NOM-172 y enlaza
+   * el que tenga peor calidad de aire. Antes se elegía el último de la lista,
+   * que no tiene nada que ver con el riesgo real.
+   */
+  private _conectarPorPeorRiesgo = async () => {
+    await this.guardarAjustes({ ...this.ajustes, modoConexion: 'peor' });
+    const dispositivos = this.ajustes.dispositivos;
+    if (dispositivos.length < 2) return;
+
+    const lecturas = await sondearNodos(
+      dispositivos.map((d) => ({ url: urlBrokerMqtt(d.direccion), topico: d.topicoMqtt })),
+    );
+    const peor = estacionPeorRiesgo(dispositivos, lecturas);
+    if (peor && peor.id !== this.ajustes.activoId) await this.cambiarDispositivo(peor.id);
   };
 
 
