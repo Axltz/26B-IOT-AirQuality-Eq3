@@ -1,5 +1,5 @@
 {
-  "name": "mi-entorno",
+  "name": "aura-172",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
@@ -38,9 +38,6 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test pruebas/logica.test.ts",
-    "esp32-simulado": "node herramientas/esp32-simulado.mjs",
-    "demo:multinodo": "node herramientas/demo-multinodo.mjs",
-    "capturas": "node herramientas/generar-capturas.mjs",
     "iniciar-sesion": "node herramientas/iniciar-sesion-expo.mjs",
     "build:android": "eas build --platform android --profile preview",
     "build:android:dev": "eas build --platform android --profile development"
