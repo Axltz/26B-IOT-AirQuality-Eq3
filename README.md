@@ -1,5 +1,6 @@
-# 🍃 Sistema IoT de Monitoreo Ambiental Comunitario (CUCEI - UdeG)
+# 🍃 AURA-172 (Alerta Urbana de Riesgo Ambiental)
 
+> Monitoreo comunitario hiperlocal de la calidad del aire · CUCEI - UdeG  
 > **Materia:** Internet de las Cosas – 26B  
 > **Equipo 3 - Agencia:** Sociedad Civil / Colectivo  
 > **Integrantes:**  
@@ -15,7 +16,7 @@
 
 ## 📌 Descripción del Proyecto
 
-Prototipo IoT de bajo costo y alta precisión para la medición en tiempo real de la calidad del aire y confort microclimático en entornos escolares y comunitarios de la Zona Metropolitana de Guadalajara. El sistema procesa contaminantes atmosféricos normados, calcula el nivel de riesgo conforme a la **NOM-172-SEMARNAT-2023** (Índice AIRE Y SALUD), muestra el alertamiento en hardware físico local y transmite la telemetría a una aplicación móvil vía **MQTT**.
+Prototipo IoT de bajo costo que demuestra una **arquitectura de extremo a extremo** para la medición en tiempo real de la calidad del aire y el confort microclimático en entornos escolares y comunitarios de la Zona Metropolitana de Guadalajara. El flujo completo es: adquisición multi-parámetro → filtrado y clasificación normativa en el borde (Edge) → transporte ligero **MQTT** → traducción visual accesible en la app. El hardware del nodo es un demostrador intercambiable, no un instrumento certificado: el sistema **complementa** a la red oficial (SIMAJ) aportando resolución micro-local y lenguaje comprensible para cualquier persona.
 
 ---
 
@@ -108,8 +109,8 @@ Para evitar manipulaciones de usuarios comunes y garantizar un despliegue seguro
 ## 📁 Estructura del Repositorio
 
 ```text
-26B-IOT-AirQuality-Eq3/
-├── .gitignore               # Exclusión de binarios, dependencias y cachés
+AURA-172/
+├── .gitignore               # Exclusión de binarios, dependencias y documentos explicativos
 ├── LICENSE                  # Licencia MIT
 ├── README.md                # Documentación oficial del proyecto
 ├── firmware/                # Código fuente para microcontroladores
@@ -125,9 +126,10 @@ Para evitar manipulaciones de usuarios comunes y garantizar un despliegue seguro
 │   │   ├── modelos/         # Interfaces y modelos de TypeScript
 │   │   └── servicios/       # Cliente MQTT WebSockets y persistencia
 │   ├── pruebas/             # Suite de pruebas unitarias automáticas
-│   └── herramientas/        # Simulador de nodo ESP32 para pruebas de escritorio
+│   └── herramientas/        # Configuración de cuenta e inicio de sesión de Expo
 └── docs/                    # Evidencias académicas y documentación
     ├── app/capturas/        # Screenshots de la interfaz móvil
+    ├── demos/               # Guía de demos con nodos reales
     ├── hardware/evidencias/ # Diagrama esquemático y fotos del circuito
     └── sprints/             # Reportes técnicos oficiales (Sprints 1, 2 y 3)
 ```
@@ -170,24 +172,9 @@ npm start
 - Presiona `w` para abrir en navegador web.
 - O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS (asegúrate de que el celular esté en la misma red local que la computadora).
 
-### 3. Demos sin hardware (ESP32 virtuales)
+### 3. Demos con nodos reales
 
-La app puede probarse con nodos simulados que publican el mismo JSON por MQTT que el firmware real:
-
-```bash
-cd app
-
-# Tres nodos virtuales publicando cada 2 segundos en el broker público
-npm run demo:multinodo
-
-# Una sola publicación de prueba y salir
-node herramientas/demo-multinodo.mjs --once
-
-# Forzar aire malo en todos los nodos (para probar alertas)
-node herramientas/demo-multinodo.mjs --malo
-```
-
-Después, en la app entra a **Ajustes → Panel de Administración**, agrega los nodos con tópicos `colectivo/aire/nodo2` y `colectivo/aire/nodo3`, y usa **Activar** para cambiar la estación que se está visualizando.
+La demostración del sistema se hace con nodos ESP32 físicos. Cada placa se flashea con un `NODO_ID` distinto y publica en `colectivo/aire/<NODO_ID>` cada 2 segundos. Después, en la app entra a **Ajustes → Panel de Administración**, agrega el tópico de cada nodo y usa **Activar** para cambiar la estación visualizada.
 
 La guía completa de demos está en [`docs/demos/GUIA_DEMOS.md`](docs/demos/GUIA_DEMOS.md).
 
