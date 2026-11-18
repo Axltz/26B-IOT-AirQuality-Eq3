@@ -102,6 +102,28 @@ export function Grafica({
   const mostrar = sel ?? ultimo;
   const fmt = METRICAS[metrica].formato;
 
+  // Etiquetas del eje X: solo las que caben sin encimarse. Con 30 puntos seguidos
+  // (una por muestra) la fila de horas se volvía ilegible; se queda una cada
+  // ~34 px, siempre la primera y siempre la última (que suele ser "Ahora").
+  const SEPARACION_MIN_ETIQUETA = 34;
+  const etiquetasVisibles: number[] = [];
+  if (n > 0) {
+    for (let i = 0; i < n - 1; i++) {
+      const anterior = etiquetasVisibles[etiquetasVisibles.length - 1];
+      if (anterior === undefined || x(i) - x(anterior) >= SEPARACION_MIN_ETIQUETA) {
+        etiquetasVisibles.push(i);
+      }
+    }
+    const xUltimo = x(n - 1);
+    while (
+      etiquetasVisibles.length > 0 &&
+      xUltimo - x(etiquetasVisibles[etiquetasVisibles.length - 1]) < SEPARACION_MIN_ETIQUETA
+    ) {
+      etiquetasVisibles.pop();
+    }
+    etiquetasVisibles.push(n - 1);
+  }
+
   return (
     <View
       style={{ height: alto }}
@@ -197,17 +219,17 @@ export function Grafica({
             </SvgText>
           ) : null}
 
-          {puntos.map((p, i) => (
+          {etiquetasVisibles.map((i) => (
             <SvgText
               key={`e${i}`}
               x={Math.min(Math.max(x(i), 14), ancho - 14)}
               y={alto - 6}
               fontSize={8.5}
               fontFamily={Fuente.seminegrita}
-              fill={p.esAhora ? Paleta.textoSuave : Paleta.textoTenue}
+              fill={puntos[i].esAhora ? Paleta.textoSuave : Paleta.textoTenue}
               textAnchor="middle"
             >
-              {p.etiqueta}
+              {puntos[i].etiqueta}
             </SvgText>
           ))}
         </Svg>

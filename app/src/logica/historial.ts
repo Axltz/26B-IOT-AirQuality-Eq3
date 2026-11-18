@@ -36,14 +36,14 @@ const dos = (n: number) => String(n).padStart(2, '0');
 
 /**
  * Promedios por hora de las últimas `horas` horas completas más "Ahora".
- * Si son las 13:20, devuelve 08:00, 09:00, 10:00, 11:00, 12:00 y Ahora.
+ * Por defecto son 12 horas: si son las 13:20, devuelve 01:00 … 12:00 y Ahora.
  */
 export function puntosUltimasHoras(
   historial: Lectura[],
   actual: Lectura | null,
   metrica: Metrica,
   ahora: number,
-  horas = 5,
+  horas = 12,
 ): PuntoGrafica[] {
   const d = new Date(ahora);
   const horaActual = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();

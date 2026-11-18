@@ -8,7 +8,13 @@ import {
   nivel,
 } from '../logica/calidadAire';
 import { etiquetaHumedad, etiquetaTemperatura } from '../logica/confort';
-import { METRICAS, type Metrica, type PuntoGrafica, valorMetrica } from '../logica/historial';
+import {
+  METRICAS,
+  promediosMovilesHoras,
+  type Metrica,
+  type PuntoGrafica,
+  valorMetrica,
+} from '../logica/historial';
 import type { Lectura } from '../modelos/lectura';
 import { Paleta, alfa } from '../tema';
 import {
@@ -97,11 +103,8 @@ function calcularPosicion(valor: number, cortes: number[]): number {
   return 1;
 }
 
-function promedioCampo(historial: Lectura[], campo: 'pm25' | 'pm10' | 'pm1' | 'co'): number | undefined {
-  const vals = historial.map((l) => l[campo]).filter((v): v is number => v !== undefined);
-  if (vals.length === 0) return undefined;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
-}
+/** Ventana de los promedios móviles que muestra la app (últimas 12 horas). */
+const HORAS_PROMEDIO = 12;
 
 export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
   const m = useMonitor();
@@ -161,7 +164,6 @@ export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
             setParametroGraficaAire('co');
           }}
           parametroActivoGrafica={parametroGraficaAire}
-          historialSesion={historialSesion}
         />
       ) : null}
 
@@ -490,13 +492,11 @@ function AnalisisAire({
   alCambiarTabParticulas,
   alSeleccionarCO,
   parametroActivoGrafica,
-  historialSesion,
 }: {
   tabParticulas: SubMetricaParticulas;
   alCambiarTabParticulas: (t: SubMetricaParticulas) => void;
   alSeleccionarCO: () => void;
   parametroActivoGrafica: SubMetricaAireTotal;
-  historialSesion: Lectura[];
 }) {
   const m = useMonitor();
   const l = m.lectura;
@@ -551,13 +551,22 @@ function AnalisisAire({
 
   const idxParticula = valorParticulaNum !== undefined ? cfgParticula.calcularIndice(valorParticulaNum) : 0;
   const nivelObjParticula = nivel(idxParticula);
-  const promParticula = promedioCampo(historialSesion, tabParticulas);
+
+  // Promedios móviles de las últimas 12 horas (historial persistido del nodo).
+  const ahora = Date.now();
+  const promParticula = promediosMovilesHoras(
+    m.historial,
+    l,
+    tabParticulas,
+    ahora,
+    HORAS_PROMEDIO,
+  ).promedio;
 
   // Datos para Gases (CO)
   const valorCoNum = l?.co;
   const idxCo = valorCoNum !== undefined ? ESCALA_CO.calcularIndice(valorCoNum) : 0;
   const nivelObjCo = nivel(idxCo);
-  const promCo = promedioCampo(historialSesion, 'co');
+  const promCo = promediosMovilesHoras(m.historial, l, 'co', ahora, HORAS_PROMEDIO).promedio;
 
   const tabsParticulas: SubMetricaParticulas[] = ['pm25', 'pm10', 'pm1'];
 
@@ -689,7 +698,7 @@ function AnalisisAire({
                 </View>
                 {promParticula !== undefined && (
                   <View style={{ borderLeftWidth: 1, borderLeftColor: Paleta.borde, paddingLeft: 12 }}>
-                    <T t={9.5} c={Paleta.textoSuave}>Promedio móvil</T>
+                    <T t={9.5} c={Paleta.textoSuave}>Promedio 12 h</T>
                     <ValorConUnidad
                       valor={numero(promParticula, 1)}
                       unidad={cfgParticula.unidad}
@@ -778,7 +787,7 @@ function AnalisisAire({
                 </View>
                 {promCo !== undefined && (
                   <View style={{ borderLeftWidth: 1, borderLeftColor: Paleta.borde, paddingLeft: 12 }}>
-                    <T t={9.5} c={Paleta.textoSuave}>Promedio móvil</T>
+                    <T t={9.5} c={Paleta.textoSuave}>Promedio 12 h</T>
                     <ValorConUnidad
                       valor={numero(promCo, 2)}
                       unidad="ppm"

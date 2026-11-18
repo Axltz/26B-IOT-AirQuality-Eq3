@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import { ESPERA_MEJORA_MS, evaluarAlerta, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
 import { evaluarAire } from '../src/logica/calidadAire';
 import { sensacionTermica } from '../src/logica/confort';
-import { puntosUltimasHoras } from '../src/logica/historial';
+import { promediosMovilesHoras, puntosUltimasHoras } from '../src/logica/historial';
 import { estacionMasCercana, estacionPeorRiesgo } from '../src/logica/seleccionEstacion';
 import {
   ajustesDesdeJson,
@@ -105,15 +105,18 @@ test('sensación térmica del diseño (24° y 58 %) ≈ 25.7°', () => {
   assert.ok(Math.abs(sensacionTermica(24, 58) - 25.7) < 0.2);
 });
 
-test('puntos de la gráfica: 5 horas completas + Ahora', () => {
+test('puntos de la gráfica: 12 horas completas + Ahora', () => {
   const historial = [];
-  for (let m = 6 * 60 - 10; m >= 0; m -= 10) {
+  for (let m = 12 * 60 - 10; m >= 0; m -= 10) {
     historial.push({ fecha: ahora - m * 60_000, temperatura: 20 });
   }
   const puntos = puntosUltimasHoras(historial, { fecha: ahora, temperatura: 24 }, 'temperatura', ahora);
   assert.deepEqual(
     puntos.map((p) => p.etiqueta),
-    ['08:00', '09:00', '10:00', '11:00', '12:00', 'Ahora'],
+    [
+      '01:00', '02:00', '03:00', '04:00', '05:00', '06:00',
+      '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', 'Ahora',
+    ],
   );
   assert.equal(puntos.at(-1)!.valor, 24);
   assert.equal(puntos[0].valor, 20);
@@ -180,6 +183,20 @@ test('todas las opciones de notificación empiezan desactivadas (opt-in)', () =>
   }
   // Lo que el usuario guardó explícitamente se respeta.
   assert.equal(ajustesDesdeJson({ alertasActivas: true }).alertasActivas, true);
+});
+
+test('el promedio móvil solo considera las últimas 12 horas', () => {
+  const muestras = [
+    { fecha: ahora - 60_000, co: 3 },
+    { fecha: ahora - 6 * 3600_000, co: 5 },
+    { fecha: ahora - 13 * 3600_000, co: 200 }, // fuera de la ventana
+  ];
+  const r = promediosMovilesHoras(muestras, null, 'co', ahora, 12);
+  assert.equal(r.muestras, 2);
+  assert.equal(r.promedio, 4);
+  // Con lectura actual en vivo entra al cálculo.
+  const r2 = promediosMovilesHoras(muestras, { fecha: ahora, co: 6 }, 'co', ahora, 12);
+  assert.equal(r2.muestras, 3);
 });
 
 test('el umbral guardado con el ICA anterior se convierte a nivel NOM-172', () => {
