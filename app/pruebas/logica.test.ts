@@ -155,6 +155,14 @@ test('alertas: abre, escala, cierra y respeta el enfriamiento', () => {
   assert.equal(paso(8, ahora + 6 * 60_000).aviso, 'mejoro');
 });
 
+test('por defecto existe solo el nodo principal colectivo/aire/nodo1', () => {
+  const a = ajustesPorDefecto();
+  assert.equal(a.dispositivos.length, 1);
+  assert.equal(a.dispositivos[0].id, 'nodo1');
+  assert.equal(a.dispositivos[0].topicoMqtt, 'colectivo/aire/nodo1');
+  assert.equal(a.activoId, 'nodo1');
+});
+
 test('el enlace automático empieza en mayor riesgo, sin pedir ubicación', () => {
   assert.equal(ajustesPorDefecto().modoConexion, 'peor');
   assert.equal(ajustesDesdeJson({}).modoConexion, 'peor');

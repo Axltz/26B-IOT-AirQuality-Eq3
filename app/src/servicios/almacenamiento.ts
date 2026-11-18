@@ -5,7 +5,9 @@ import { ajustesDesdeJson, ajustesPorDefecto, type Ajustes } from '../modelos/aj
 import type { Lectura } from '../modelos/lectura';
 
 /** Guarda ajustes, historial y alertas en el teléfono. */
-const CLAVE_AJUSTES = 'mientorno.ajustes.v1';
+// v2: se descartan los ajustes de pruebas anteriores que dejaron nodos extras
+// guardados. Al cargar se parte del nodo principal único (colectivo/aire/nodo1).
+const CLAVE_AJUSTES = 'mientorno.ajustes.v2';
 const claveHistorial = (id: string) => `mientorno.historial.v1.${id}`;
 const claveAlerta = (id: string) => `mientorno.alerta.v1.${id}`;
 
