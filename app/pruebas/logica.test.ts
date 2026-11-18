@@ -2,10 +2,11 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ESPERA_MEJORA_MS, evaluarAlerta, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
+import { ESPERA_MEJORA_MS, evaluarAlerta, textoNotificacion, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
 import { evaluarAire } from '../src/logica/calidadAire';
 import { sensacionTermica } from '../src/logica/confort';
 import { promediosMovilesHoras, puntosUltimasHoras } from '../src/logica/historial';
+import { recomendacionDeGrupo, umbralEfectivo } from '../src/logica/gruposVulnerables';
 import { estacionMasCercana, estacionPeorRiesgo } from '../src/logica/seleccionEstacion';
 import {
   ajustesDesdeJson,
@@ -156,6 +157,66 @@ test('alertas: abre, escala, cierra y respeta el enfriamiento', () => {
   assert.equal(estado!.enCurso, true);
   // Baja dos niveles (Buena): se cierra de inmediato.
   assert.equal(paso(8, ahora + 6 * 60_000).aviso, 'mejoro');
+});
+
+test('el umbral del grupo vulnerable nunca es más laxo que el configurado', () => {
+  // Sin grupo marcado manda el umbral tal cual.
+  assert.equal(umbralEfectivo(2, false, undefined), 2);
+  assert.equal(umbralEfectivo(3, undefined, 'ninos'), 3);
+  // Con grupo: toma el mínimo entre su umbral y el del grupo.
+  assert.equal(umbralEfectivo(2, true, 'ninos'), 1);
+  assert.equal(umbralEfectivo(1, true, 'ninos'), 1);
+  // Grupo desconocido: no rompe, se queda con el umbral configurado.
+  assert.equal(umbralEfectivo(2, true, 'inventado'), 2);
+});
+
+test('la recomendación del grupo habla de su caso y respeta el nivel mínimo', () => {
+  const ninos = recomendacionDeGrupo('ninos', 1);
+  assert.ok(ninos && ninos.includes('esfuerzos físicos')); // ya en Aceptable
+  const adultos = recomendacionDeGrupo('adultos_mayores', 2);
+  assert.ok(adultos && adultos.length > 0);
+  assert.equal(recomendacionDeGrupo(undefined, 3), null);
+  assert.equal(recomendacionDeGrupo('sin_grupo', 3), null);
+});
+
+test('con umbral 1 (grupo vulnerable) el aire Aceptable ya abre la alerta', () => {
+  let estado: EstadoAlerta | null = null;
+  const paso = (pm25: number): Evaluacion => {
+    const lectura = { fecha: ahora, pm25 };
+    const r = evaluarAlerta({
+      actual: estado,
+      aire: evaluarAire(lectura),
+      lectura,
+      umbral: 1, // nivel mínimo de los grupos: Aceptable ya avisa
+      dispositivo: 'Casa',
+      ahora,
+    });
+    estado = r.estado;
+    return r;
+  };
+  assert.equal(paso(8).aviso, null); // Buena (nivel 0): aún no
+  assert.equal(paso(20).aviso, 'empeoro'); // Aceptable (nivel 1): sí
+  assert.equal(estado!.enCurso, true);
+  assert.equal(estado!.nivel, 1);
+});
+
+test('la notificación agrega la recomendación del grupo vulnerable', () => {
+  const estado: EstadoAlerta = {
+    enCurso: true,
+    inicio: ahora,
+    nivel: 1,
+    nivelMaximo: 1,
+    pm25: 20,
+    principal: 'pm25',
+    dispositivo: 'Casa',
+    leida: false,
+    simulada: false,
+  };
+  const sinGrupo = textoNotificacion('empeoro', estado);
+  assert.equal(sinGrupo.cuerpo.includes('Reducir esfuerzos'), false);
+  const conGrupo = textoNotificacion('empeoro', estado, recomendacionDeGrupo('ninos', 1));
+  assert.ok(conGrupo.cuerpo.includes('Reducir esfuerzos'));
+  assert.equal(conGrupo.titulo, sinGrupo.titulo);
 });
 
 test('por defecto existe solo el nodo principal colectivo/aire/nodo1', () => {

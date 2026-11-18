@@ -106,8 +106,17 @@ export function evaluarAlerta(p: {
   };
 }
 
-/** Textos de la notificación del sistema. */
-export function textoNotificacion(aviso: TipoAviso, a: EstadoAlerta): { titulo: string; cuerpo: string } {
+/**
+ * Textos de la notificación del sistema.
+ *
+ * Si `recomendacionGrupo` viene (viene del grupo vulnerable marcado), se agrega
+ * al final: el aviso habla de su caso y no en general.
+ */
+export function textoNotificacion(
+  aviso: TipoAviso,
+  a: EstadoAlerta,
+  recomendacionGrupo?: string | null,
+): { titulo: string; cuerpo: string } {
   if (aviso === 'mejoro') {
     return {
       titulo: 'La calidad del aire mejoró',
@@ -115,15 +124,17 @@ export function textoNotificacion(aviso: TipoAviso, a: EstadoAlerta): { titulo: 
     };
   }
   const c = CONTAMINANTES[a.principal] ?? CONTAMINANTES.sensor;
-  if (c.exterior) {
-    return {
-      titulo: 'MALA CALIDAD DEL AIRE',
-      cuerpo:
-        'Se ha detectado una mala calidad del aire en su zona, favor de tomar precaución al salir de casa.',
-    };
-  }
-  return {
-    titulo: 'MALA CALIDAD DEL AIRE',
-    cuerpo: `Se detectó una concentración elevada de ${c.enFrase} en ${a.dispositivo}. Ventila el espacio cuanto antes.`,
-  };
+  const base = c.exterior
+    ? {
+        titulo: 'MALA CALIDAD DEL AIRE',
+        cuerpo:
+          'Se ha detectado una mala calidad del aire en su zona, favor de tomar precaución al salir de casa.',
+      }
+    : {
+        titulo: 'MALA CALIDAD DEL AIRE',
+        cuerpo: `Se detectó una concentración elevada de ${c.enFrase} en ${a.dispositivo}. Ventila el espacio cuanto antes.`,
+      };
+  return recomendacionGrupo
+    ? { titulo: base.titulo, cuerpo: `${base.cuerpo} ${recomendacionGrupo}` }
+    : base;
 }

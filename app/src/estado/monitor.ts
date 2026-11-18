@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 
 import { evaluarAlerta, textoNotificacion, type EstadoAlerta, type TipoAviso } from '../logica/alertas';
 import { evaluarAire, type CalidadAire } from '../logica/calidadAire';
+import { recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
 import type { Metrica } from '../logica/historial';
 import { estacionMasCercana, estacionPeorRiesgo } from '../logica/seleccionEstacion';
 import {
@@ -113,6 +114,24 @@ export class Monitor {
   get aire(): CalidadAire | null {
     const l = this.lectura;
     return l ? evaluarAire(l) : null;
+  }
+
+  /**
+   * Nivel desde el que se notifica: el umbral configurado o, si la persona se
+   * identificó con un grupo vulnerable, el más estricto de ese grupo.
+   */
+  get umbralNotificacion(): number {
+    return umbralEfectivo(
+      this.ajustes.umbralNivel,
+      this.ajustes.usarGrupoVulnerable,
+      this.ajustes.grupoVulnerable,
+    );
+  }
+
+  /** Recomendación del grupo vulnerable para el nivel de una alerta (null si no aplica). */
+  recomendacionPara(nivel: number): string | null {
+    if (!this.ajustes.usarGrupoVulnerable) return null;
+    return recomendacionDeGrupo(this.ajustes.grupoVulnerable, nivel);
   }
 
   get hayAvisoSinLeer(): boolean {
@@ -309,7 +328,7 @@ export class Monitor {
       actual: this.alerta,
       aire: evaluarAire(l),
       lectura: l,
-      umbral: this.ajustes.umbralNivel,
+      umbral: this.umbralNotificacion,
       dispositivo: this.dispositivo.nombre,
       ahora: Date.now(),
       simulada: this.simulando,
@@ -332,7 +351,7 @@ export class Monitor {
         ? this.ajustes.alertasActivas || forzar
         : (this.ajustes.alertasActivas || a.simulada) && this.ajustes.avisarMejora;
     if (!permitido) return;
-    const t = textoNotificacion(aviso, a);
+    const t = textoNotificacion(aviso, a, this.recomendacionPara(a.nivel));
     await mostrarNotificacion(t.titulo, t.cuerpo, aviso);
   }
 
@@ -347,7 +366,7 @@ export class Monitor {
     const permisoFuturo = pedirPermiso();
     const ahora = Date.now();
     const base = this.lecturaReal ?? lecturaSimulada(ahora, false);
-    const umbral = this.ajustes.umbralNivel;
+    const umbral = this.umbralNotificacion;
     // PM2.5 suficiente para llegar al nivel elegido en Ajustes (cortes NOM-172).
     const [pm25, pm10] = umbral <= 1 ? [20, 35] : umbral === 2 ? [68, 96] : umbral === 3 ? [100, 140] : [150, 200];
     // Sin el nivel del semáforo del ESP32, que si no le ganaría al valor simulado.
@@ -442,6 +461,7 @@ export class Monitor {
 
   fijarGrupoVulnerable = async (grupoId: string) => {
     await this.guardarAjustes({ ...this.ajustes, grupoVulnerable: grupoId });
+    await this.reenviarConfigPush();
   };
 
   fijarUsarGrupoVulnerable = async (usar: boolean) => {
@@ -450,6 +470,7 @@ export class Monitor {
       usarGrupoVulnerable: usar,
       grupoVulnerable: usar ? this.ajustes.grupoVulnerable : undefined,
     });
+    await this.reenviarConfigPush();
   };
 
   fijarReporteProgramado = async (activo: boolean) => {
@@ -603,7 +624,7 @@ export class Monitor {
     const token = await obtenerTokenPush();
     await registrarPushEsp32(normalizarDireccion(d.direccion), {
       token,
-      umbral: this.ajustes.umbralNivel,
+      umbral: this.umbralNotificacion,
       avisarMejora: this.ajustes.avisarMejora,
       nombre: d.nombre,
     });
@@ -636,7 +657,7 @@ export class Monitor {
     try {
       await registrarPushEsp32(normalizarDireccion(d.direccion), {
         token: d.tokenPush,
-        umbral: this.ajustes.umbralNivel,
+        umbral: this.umbralNotificacion,
         avisarMejora: this.ajustes.avisarMejora,
         nombre: d.nombre,
       });

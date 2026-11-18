@@ -13,7 +13,7 @@ import {
 import { PanelAdminModal } from '../componentes/PanelAdminModal';
 import { useAdmin } from '../estado/admin';
 import { useMonitor } from '../estado/monitor';
-import { GRUPOS_VULNERABLES } from '../logica/gruposVulnerables';
+import { GRUPOS_VULNERABLES, umbralEfectivo } from '../logica/gruposVulnerables';
 import { nivel } from '../logica/calidadAire';
 import { Paleta } from '../tema';
 
@@ -23,6 +23,9 @@ export default function Ajustes() {
   const insets = useSafeAreaInsets();
   const a = m.ajustes;
   const [panelAdminVisible, setPanelAdminVisible] = useState(false);
+  // Umbral real de notificación: si marca grupo vulnerable, manda su nivel mínimo.
+  const umbralEf = umbralEfectivo(a.umbralNivel, a.usarGrupoVulnerable, a.grupoVulnerable);
+  const grupoActivo = GRUPOS_VULNERABLES.find((g) => g.id === a.grupoVulnerable);
 
   return (
     <View style={[estilos.pantalla, { paddingTop: insets.top }]}>
@@ -103,7 +106,9 @@ export default function Ajustes() {
               alElegir={(v) => void m.fijarUmbral(v)}
             />
             <T t={10.5} c={Paleta.textoSuave} style={{ marginTop: 6, marginBottom: 14 }}>
-              Se notificará únicamente si el aire alcanza el nivel {nivel(a.umbralNivel).adjetivo} o peor ({nivel(a.umbralNivel).riesgo.toLowerCase()}, NOM-172).
+              Se notificará únicamente si el aire alcanza el nivel {nivel(umbralEf).adjetivo} o
+              peor ({nivel(umbralEf).riesgo.toLowerCase()}, NOM-172)
+              {umbralEf !== a.umbralNivel ? ' con tu grupo vulnerable aplicado.' : '.'}
             </T>
 
             <View style={{ height: 1, backgroundColor: Paleta.borde, marginVertical: 6 }} />
@@ -183,6 +188,7 @@ export default function Ajustes() {
                         estilos.tarjetaGrupo,
                         seleccionado && { borderColor: Paleta.verde, backgroundColor: Paleta.verdeSuave },
                       ]}
+                      android_ripple={{ color: 'transparent' }}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: seleccionado }}
                     >
@@ -207,6 +213,18 @@ export default function Ajustes() {
                     </Pressable>
                   );
                 })}
+                <View style={{ height: 1, backgroundColor: Paleta.borde, marginVertical: 10 }} />
+                <T t={10.5} c={Paleta.textoSuave} style={{ marginBottom: 6 }}>
+                  {grupoActivo
+                    ? `Con "${grupoActivo.nombre}" las notificaciones arrancan desde el nivel ${nivel(umbralEf).adjetivo} (${nivel(umbralEf).riesgo.toLowerCase()}).`
+                    : 'Elige un grupo para ver desde qué nivel te avisará.'}
+                </T>
+                {!a.alertasActivas ? (
+                  <T t={10} c={Paleta.textoSuave}>
+                    Recordatorio: los avisos solo llegan si activas "Notificar si el aire empeora"
+                    en la sección de notificaciones.
+                  </T>
+                ) : null}
               </>
             ) : null}
           </Tarjeta>

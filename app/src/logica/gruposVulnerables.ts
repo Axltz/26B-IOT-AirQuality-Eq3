@@ -62,3 +62,39 @@ export const GRUPOS_VULNERABLES: GrupoVulnerable[] = [
     recomendacionMuyMala: 'Evitar salir de casa bajo contingencia atmosférica severa.',
   },
 ];
+
+/** Busca un grupo por su id. */
+export function grupoPorId(id?: string): GrupoVulnerable | undefined {
+  return id ? GRUPOS_VULNERABLES.find((g) => g.id === id) : undefined;
+}
+
+/**
+ * Umbral efectivo de notificación.
+ *
+ * Si la persona se identifica con un grupo vulnerable se usa el nivel mínimo
+ * del grupo, que nunca es más laxo que su umbral configurado: un aire
+ * "aceptable" no significa lo mismo para todas las personas. Si no marca
+ * ningún grupo, manda su umbral tal cual.
+ */
+export function umbralEfectivo(
+  umbralConfigurado: number,
+  usarGrupo: boolean | undefined,
+  grupoId?: string,
+): number {
+  if (!usarGrupo) return umbralConfigurado;
+  const g = grupoPorId(grupoId);
+  return g ? Math.min(umbralConfigurado, g.nivelAlertaMinimo) : umbralConfigurado;
+}
+
+/**
+ * Recomendación del grupo para el nivel que se está notificando, para que el
+ * aviso hable de su caso y no en general. Devuelve null si no hay grupo
+ * marcado o si el nivel aún no llega al mínimo de ese grupo.
+ */
+export function recomendacionDeGrupo(grupoId: string | undefined, nivel: number): string | null {
+  const g = grupoPorId(grupoId);
+  if (!g || nivel < g.nivelAlertaMinimo) return null;
+  if (nivel >= 3) return g.recomendacionMuyMala;
+  if (nivel >= 2) return g.recomendacionMala;
+  return g.recomendacionAceptable;
+}
