@@ -5,8 +5,8 @@ import { describe, test } from 'node:test';
 import { ESPERA_MEJORA_MS, evaluarAlerta, textoNotificacion, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
 import { evaluarAire } from '../src/logica/calidadAire';
 import { sensacionTermica } from '../src/logica/confort';
-import { promediosMovilesHoras, puntosUltimasHoras } from '../src/logica/historial';
-import { recomendacionDeGrupo, umbralEfectivo } from '../src/logica/gruposVulnerables';
+import { promediosMovilesHoras, puntosPorMinuto, puntosUltimasHoras } from '../src/logica/historial';
+import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../src/logica/gruposVulnerables';
 import { estacionMasCercana, estacionPeorRiesgo } from '../src/logica/seleccionEstacion';
 import {
   ajustesDesdeJson,
@@ -200,7 +200,7 @@ test('con umbral 1 (grupo vulnerable) el aire Aceptable ya abre la alerta', () =
   assert.equal(estado!.nivel, 1);
 });
 
-test('la notificación agrega la recomendación del grupo vulnerable', () => {
+test('la notificación dice explícitamente para qué grupo vulnerable es', () => {
   const estado: EstadoAlerta = {
     enCurso: true,
     inicio: ahora,
@@ -214,9 +214,42 @@ test('la notificación agrega la recomendación del grupo vulnerable', () => {
   };
   const sinGrupo = textoNotificacion('empeoro', estado);
   assert.equal(sinGrupo.cuerpo.includes('Reducir esfuerzos'), false);
-  const conGrupo = textoNotificacion('empeoro', estado, recomendacionDeGrupo('ninos', 1));
-  assert.ok(conGrupo.cuerpo.includes('Reducir esfuerzos'));
-  assert.equal(conGrupo.titulo, sinGrupo.titulo);
+  assert.equal(sinGrupo.cuerpo.includes('personalizado'), false);
+
+  const g = grupoPorId('ninos')!;
+  const conGrupo = textoNotificacion('empeoro', estado, {
+    nombre: g.nombre,
+    recomendacion: recomendacionDeGrupo('ninos', 1),
+  });
+  // El nombre del grupo va en el título y en el cuerpo, con su recomendación.
+  assert.ok(conGrupo.titulo.includes(g.nombre));
+  assert.ok(conGrupo.cuerpo.includes(`personalizado para tu grupo (${g.nombre})`));
+  assert.ok(conGrupo.cuerpo.includes('Reducir esfuerzos físicos'));
+  // Sin recomendación todavía igual nombra al grupo.
+  const sinRec = textoNotificacion('empeoro', estado, { nombre: g.nombre, recomendacion: null });
+  assert.ok(sinRec.cuerpo.includes(g.nombre));
+});
+
+test('la gráfica en vivo promedia por minuto, no por segundo', () => {
+  const base = Math.floor(ahora / 60_000) * 60_000; // inicio del minuto en curso
+  const muestras = [
+    { fecha: base - 2 * 60_000 + 5_000, pm25: 10 },
+    { fecha: base - 2 * 60_000 + 40_000, pm25: 20 }, // mismo minuto → 15
+    { fecha: base - 60_000 + 10_000, pm25: 30 },
+    { fecha: base + 5_000, pm25: 40 }, // minuto en curso
+  ];
+  const puntos = puntosPorMinuto(muestras, null, 'pm25', ahora);
+  assert.equal(puntos.length, 3);
+  assert.equal(puntos[0].valor, 15); // promedio del minuto, no muestras sueltas
+  assert.equal(puntos[1].valor, 30);
+  assert.equal(puntos[2].valor, 40);
+  assert.equal(puntos[2].esAhora, true);
+  assert.equal(puntos[2].etiqueta, 'Ahora');
+  // Etiquetas en formato de hora (HH:MM), no de segundos.
+  assert.match(puntos[0].etiqueta, /^\d{2}:\d{2}$/);
+  // Si la lectura actual ya está en el historial no se cuenta dos veces.
+  const conActual = puntosPorMinuto(muestras, muestras[3], 'pm25', ahora);
+  assert.equal(conActual[2].valor, 40);
 });
 
 test('por defecto existe solo el nodo principal colectivo/aire/nodo1', () => {

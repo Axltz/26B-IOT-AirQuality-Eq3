@@ -11,9 +11,10 @@ import { etiquetaHumedad, etiquetaTemperatura } from '../logica/confort';
 import {
   METRICAS,
   promediosMovilesHoras,
+  puntosPorMinuto,
+  puntosUltimasHoras,
   type Metrica,
   type PuntoGrafica,
-  valorMetrica,
 } from '../logica/historial';
 import type { Lectura } from '../modelos/lectura';
 import { Paleta, alfa } from '../tema';
@@ -113,7 +114,8 @@ export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
   const [parametroGraficaAire, setParametroGraficaAire] = useState<SubMetricaAireTotal>('pm25');
   const [historialSesion, setHistorialSesion] = useState<Lectura[]>([]);
 
-  // Mantener historial ligero en memoria de sesión (máximo 30 puntos)
+  // Mantener historial ligero en memoria de sesión (máximo 600 muestras crudas,
+  // que la gráfica en vivo agrupa por minuto).
   useEffect(() => {
     if (!m.lectura) return;
     setHistorialSesion((prev) => {
@@ -121,7 +123,7 @@ export function Resumen({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
         return prev;
       }
       const nuevo = [...prev, m.lectura!];
-      return nuevo.slice(-30);
+      return nuevo.slice(-600);
     });
   }, [m.lectura]);
 
@@ -837,7 +839,9 @@ function AnalisisAire({
 }
 
 /**
- * 4. Gráfica "Últimas horas" dinámica en memoria de sesión (máximo 30 puntos).
+ * 4. Gráfica de telemetría con dos vistas:
+ *    - "En vivo": puntos agrupados por minuto (promedio de cada minuto).
+ *    - "12 horas": promedio por hora de las últimas 12 horas (NOM-172).
  * Se actualiza según la pestaña activa (PM2.5, PM10, CO, PM1, Temperatura o Humedad).
  */
 function TarjetaGrafica({
@@ -848,6 +852,15 @@ function TarjetaGrafica({
   historialSesion: Lectura[];
 }) {
   const m = useMonitor();
+  const [vista, setVista] = useState<'vivo' | '12h'>('vivo');
+  const [ahora, setAhora] = useState(Date.now());
+
+  // El reloj refresca las etiquetas para que el punto "Ahora" y la vista de
+  // 12 horas se muevan solos aunque no llegue lectura nueva.
+  useEffect(() => {
+    const reloj = setInterval(() => setAhora(Date.now()), 15_000);
+    return () => clearInterval(reloj);
+  }, []);
 
   // Color de la gráfica según la métrica activa
   const color =
@@ -870,29 +883,17 @@ function TarjetaGrafica({
         ? ['Conectando', Paleta.amarillo]
         : ['Sin señal', Paleta.textoTenue];
 
-  // Construir puntos ligeros en memoria a partir de las muestras en la sesión actual
-  const puntos: PuntoGrafica[] = historialSesion.map((l, i) => {
-    const esUltimo = i === historialSesion.length - 1;
-    const val = valorMetrica(metrica, l);
-    const d = new Date(l.fecha);
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    return {
-      etiqueta: esUltimo ? 'Ahora' : `${mm}:${ss}`,
-      valor: val,
-      esAhora: esUltimo,
-    };
-  });
-
-  if (puntos.length === 0 && m.lectura) {
-    puntos.push({
-      etiqueta: 'Ahora',
-      valor: valorMetrica(metrica, m.lectura),
-      esAhora: true,
-    });
-  }
+  // Puntos: en vivo se promedian por minuto; en 12 h es el promedio por hora.
+  const puntos: PuntoGrafica[] =
+    vista === 'vivo'
+      ? puntosPorMinuto(historialSesion, m.lectura, metrica, ahora)
+      : puntosUltimasHoras(m.historial, m.lectura, metrica, ahora, 12);
 
   const tituloGrafica = METRICAS[metrica]?.titulo ?? metrica;
+  const pestanas: { id: 'vivo' | '12h'; texto: string }[] = [
+    { id: 'vivo', texto: 'En vivo · minuto' },
+    { id: '12h', texto: 'Últimas 12 h' },
+  ];
 
   return (
     <Tarjeta radio={16} style={{ paddingBottom: 10 }}>
@@ -905,7 +906,38 @@ function TarjetaGrafica({
         </View>
         <Pastilla texto={textoVivo} mayusculas punto={colorVivo} pulso={m.conexion === 'enLinea'} />
       </View>
-      <View style={{ marginTop: 10 }}>
+
+      {/* Pestañas: minuto a minuto o promedio de las últimas 12 horas */}
+      <View style={[estilos.filaTabs, { marginTop: 12 }]}>
+        {pestanas.map((p) => {
+          const seleccionada = vista === p.id;
+          return (
+            <Pressable
+              key={p.id}
+              onPress={() => setVista(p.id)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: seleccionada }}
+              android_ripple={{ color: 'transparent' }}
+              style={[
+                estilos.pillTab,
+                seleccionada && { backgroundColor: Paleta.verdeOscuro, borderColor: Paleta.verdeOscuro },
+              ]}
+            >
+              <T t={11.5} f="extra" c={seleccionada ? '#FFFFFF' : Paleta.textoSuave}>
+                {p.texto}
+              </T>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <T t={9.5} c={Paleta.textoTenue} style={{ marginTop: 8 }}>
+        {vista === 'vivo'
+          ? 'Cada punto es el promedio del minuto; la línea avanza minuto a minuto.'
+          : 'Promedio por hora de las últimas 12 horas (ventana NOM-172).'}
+      </T>
+
+      <View style={{ marginTop: 6 }}>
         <Grafica puntos={puntos} metrica={metrica} color={color} />
       </View>
     </Tarjeta>

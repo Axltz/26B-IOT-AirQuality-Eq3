@@ -106,16 +106,25 @@ export function evaluarAlerta(p: {
   };
 }
 
+/** Datos del grupo vulnerable que personalizan la notificación. */
+export interface PersonalizacionGrupo {
+  /** Nombre completo del grupo, ej. "Niñas y Niños (< 12 años)". */
+  nombre: string;
+  /** Recomendación NOM-172 para el nivel notificado (null si aún no aplica). */
+  recomendacion: string | null;
+}
+
 /**
  * Textos de la notificación del sistema.
  *
- * Si `recomendacionGrupo` viene (viene del grupo vulnerable marcado), se agrega
- * al final: el aviso habla de su caso y no en general.
+ * Si viene `grupo` (grupo vulnerable marcado en Ajustes), el aviso dice
+ * explícitamente para cuál grupo es y agrega su recomendación: no es lo mismo
+ * un aire "aceptable" para todas las personas.
  */
 export function textoNotificacion(
   aviso: TipoAviso,
   a: EstadoAlerta,
-  recomendacionGrupo?: string | null,
+  grupo?: PersonalizacionGrupo | null,
 ): { titulo: string; cuerpo: string } {
   if (aviso === 'mejoro') {
     return {
@@ -134,7 +143,12 @@ export function textoNotificacion(
         titulo: 'MALA CALIDAD DEL AIRE',
         cuerpo: `Se detectó una concentración elevada de ${c.enFrase} en ${a.dispositivo}. Ventila el espacio cuanto antes.`,
       };
-  return recomendacionGrupo
-    ? { titulo: base.titulo, cuerpo: `${base.cuerpo} ${recomendacionGrupo}` }
-    : base;
+  if (!grupo) return base;
+  const recomendacion = grupo.recomendacion
+    ? ` ${grupo.recomendacion}`
+    : ' Toma precauciones extra al aire libre.';
+  return {
+    titulo: `MALA CALIDAD DEL AIRE · Grupo ${grupo.nombre}`,
+    cuerpo: `${base.cuerpo} Aviso personalizado para tu grupo (${grupo.nombre}):${recomendacion}`,
+  };
 }

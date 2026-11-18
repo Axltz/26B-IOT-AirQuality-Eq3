@@ -134,6 +134,51 @@ export function promediosMovilesHoras(
   };
 }
 
+/**
+ * Puntos de la gráfica en vivo agrupados por minuto: cada punto es el promedio
+ * de las muestras de ese minuto. Así la línea va cambiando minuto a minuto en
+ * vez de saltar cada segundo, y el eje X se rotula con horas (HH:MM).
+ *
+ * El punto del minuto en curso se etiqueta "Ahora". Si no hay lecturas se
+ * devuelve una lista vacía.
+ */
+export function puntosPorMinuto(
+  historial: Lectura[],
+  actual: Lectura | null,
+  metrica: Metrica,
+  ahora: number,
+  maxPuntos = 30,
+): PuntoGrafica[] {
+  const porMinuto = new Map<number, { suma: number; n: number }>();
+  const agregar = (l: Lectura) => {
+    const v = valorMetrica(metrica, l);
+    if (v === undefined) return;
+    const minuto = Math.floor(l.fecha / 60_000);
+    const acumulado = porMinuto.get(minuto);
+    if (acumulado) {
+      acumulado.suma += v;
+      acumulado.n += 1;
+    } else {
+      porMinuto.set(minuto, { suma: v, n: 1 });
+    }
+  };
+  for (const l of historial) agregar(l);
+  // La lectura actual solo entra si aún no está en el historial (evita contarla dos veces).
+  if (actual && !historial.some((l) => l.fecha === actual.fecha)) agregar(actual);
+
+  const minutos = [...porMinuto.keys()].sort((a, b) => a - b).slice(-maxPuntos);
+  const minutoEnCurso = Math.floor(ahora / 60_000);
+  return minutos.map((minuto) => {
+    const b = porMinuto.get(minuto)!;
+    const esAhora = minuto === minutoEnCurso;
+    return {
+      etiqueta: esAhora ? 'Ahora' : horaCorta(minuto * 60_000),
+      valor: b.suma / b.n,
+      esAhora,
+    };
+  });
+}
+
 /** "justo ahora", "hace 5 s", "hace 3 min", "a las 13:45". */
 export function haceCuanto(fecha: number, ahora: number): string {
   const s = Math.floor((ahora - fecha) / 1000);

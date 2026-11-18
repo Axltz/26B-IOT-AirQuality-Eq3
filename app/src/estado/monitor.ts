@@ -1,9 +1,9 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { evaluarAlerta, textoNotificacion, type EstadoAlerta, type TipoAviso } from '../logica/alertas';
+import { evaluarAlerta, textoNotificacion, type EstadoAlerta, type PersonalizacionGrupo, type TipoAviso } from '../logica/alertas';
 import { evaluarAire, type CalidadAire } from '../logica/calidadAire';
-import { recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
+import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
 import type { Metrica } from '../logica/historial';
 import { estacionMasCercana, estacionPeorRiesgo } from '../logica/seleccionEstacion';
 import {
@@ -128,10 +128,16 @@ export class Monitor {
     );
   }
 
-  /** Recomendación del grupo vulnerable para el nivel de una alerta (null si no aplica). */
-  recomendacionPara(nivel: number): string | null {
+  /**
+   * Personalización del aviso según el grupo vulnerable marcado: el nombre del
+   * grupo y su recomendación NOM-172 para el nivel notificado. Null si no hay
+   * grupo marcado.
+   */
+  grupoPara(nivel: number): PersonalizacionGrupo | null {
     if (!this.ajustes.usarGrupoVulnerable) return null;
-    return recomendacionDeGrupo(this.ajustes.grupoVulnerable, nivel);
+    const g = grupoPorId(this.ajustes.grupoVulnerable);
+    if (!g) return null;
+    return { nombre: g.nombre, recomendacion: recomendacionDeGrupo(g.id, nivel) };
   }
 
   get hayAvisoSinLeer(): boolean {
@@ -351,7 +357,7 @@ export class Monitor {
         ? this.ajustes.alertasActivas || forzar
         : (this.ajustes.alertasActivas || a.simulada) && this.ajustes.avisarMejora;
     if (!permitido) return;
-    const t = textoNotificacion(aviso, a, this.recomendacionPara(a.nivel));
+    const t = textoNotificacion(aviso, a, this.grupoPara(a.nivel));
     await mostrarNotificacion(t.titulo, t.cuerpo, aviso);
   }
 

@@ -14,8 +14,9 @@ import {
   recomendacion,
 } from '../logica/calidadAire';
 import { horaCorta } from '../logica/historial';
+import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
 import { Paleta, alfa } from '../tema';
-import { BarraIndice, BotonPrincipal, ChipIcono, Etiqueta, Icono, Pastilla, T, Tarjeta, ValorConUnidad, numero } from './comunes';
+import { BarraIndice, BotonPrincipal, ChipIcono, Etiqueta, Icono, Pastilla, T, Tarjeta, ValorConUnidad, numero, type NombreIcono } from './comunes';
 
 /** Pestaña "Notificación": detalle de la alerta de calidad del aire. */
 export function VistaNotificacion() {
@@ -54,6 +55,16 @@ function DetalleAlerta({ a }: { a: EstadoAlerta }) {
     : m.ajustes.alertasActivas && m.ajustes.avisarMejora
       ? 'Recibirás otra notificación cuando la calidad del aire mejore.'
       : 'Activa las alertas para saber cuándo mejore la calidad del aire.';
+
+  // Personalización por grupo vulnerable (NOM-172): el aviso habla de su caso.
+  const grupo = m.ajustes.usarGrupoVulnerable
+    ? grupoPorId(m.ajustes.grupoVulnerable)
+    : undefined;
+  const nivelAviso = enCurso ? a.nivel : a.nivelMaximo;
+  const recomendacionGrupo = grupo ? recomendacionDeGrupo(grupo.id, nivelAviso) : null;
+  const umbralGrupo = grupo
+    ? umbralEfectivo(m.ajustes.umbralNivel, true, grupo.id)
+    : m.ajustes.umbralNivel;
 
   return (
     <View style={{ alignItems: 'center' }}>
@@ -134,6 +145,28 @@ function DetalleAlerta({ a }: { a: EstadoAlerta }) {
           </T>
         </View>
       </Tarjeta>
+
+      {grupo ? (
+        <Tarjeta radio={16} style={[estilos.salud, { borderColor: Paleta.verdeBorde }]}>
+          <ChipIcono
+            nombre={grupo.icono as NombreIcono}
+            color={Paleta.verde}
+            fondo={Paleta.verdeSuave}
+            tam={32}
+            tamIcono={17}
+            radio={10}
+          />
+          <View style={{ flex: 1 }}>
+            <T t={13} f="extra">
+              Aviso personalizado · {grupo.nombre}
+            </T>
+            <T t={11} c={Paleta.textoSuave} style={{ marginTop: 3, lineHeight: 16 }}>
+              {recomendacionGrupo ??
+                `Con tu grupo las alertas arrancan desde el nivel ${nivel(umbralGrupo).adjetivo} (${nivel(umbralGrupo).riesgo.toLowerCase()}).`}
+            </T>
+          </View>
+        </Tarjeta>
+      ) : null}
 
       <View style={{ alignSelf: 'stretch', marginTop: 20 }}>
         <BotonPrincipal texto="Entendido, volver al resumen" alPresionar={m.marcarAvisoLeido} />
