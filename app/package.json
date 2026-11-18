@@ -39,8 +39,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test pruebas/logica.test.ts",
     "iniciar-sesion": "node herramientas/iniciar-sesion-expo.mjs",
-    "build:android": "eas build --platform android --profile preview",
-    "build:android:dev": "eas build --platform android --profile development"
+    "build:android": "npx eas-cli build --platform android --profile preview",
+    "build:android:dev": "npx eas-cli build --platform android --profile development"
   },
   "private": true
 }
