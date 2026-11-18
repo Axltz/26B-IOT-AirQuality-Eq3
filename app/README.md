@@ -17,6 +17,20 @@ npm run typecheck  # verificación de tipos
 npm run iniciar-sesion  # iniciar sesión en Expo (si tu cuenta lo requiere)
 ```
 
+## Histórico en Supabase
+
+1. Copia `.env.example` como `.env.local` y pon la Project URL y la clave **publicable** (`sb_publishable_…`). Reinicia Expo para que tome los valores. Sin estas variables la app funciona igual, solo con el historial local.
+2. Para el APK, `.env.local` no se sube a EAS (está en `.gitignore`). Da de alta las variables en el entorno de EAS que usa cada perfil (`eas.json` → `environment`):
+
+   ```bash
+   npx eas-cli env:create --environment preview --name EXPO_PUBLIC_SUPABASE_URL --value https://TU_PROYECTO.supabase.co --visibility plaintext
+   npx eas-cli env:create --environment preview --name EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY --value sb_publishable_... --visibility plaintext
+   ```
+
+   Repite con `--environment development` o `production` si usas esos perfiles.
+
+La tabla y sus permisos están en `supabase/migrations/`; el envío desde el ESP32 se configura en `firmware/MiEntorno_ESP32/secretos.h` (ver el README principal).
+
 ## Cuenta de Expo del equipo
 
 El proyecto vive en la organización de Expo **`amiguelv05s-team`** (`owner` y
@@ -41,7 +55,7 @@ npm run build:android
 1. El PMS5003 mide PM1, PM2.5 y PM10 (µg/m³); el firmware publica esas tres fracciones cada 2 segundos en `colectivo/aire/<NODO_ID>` usando `broker.hivemq.com`.
 2. La app se suscribe por WebSockets (puerto 8884) y actualiza la pantalla en vivo.
 3. El payload incluye `pm1`, `pm25`, `pm10`, `co`, `temp`, `hum`, `nivel_pm25`, `nivel_pm10`, `nivel_co`, `nivel_general`, `dominante` y `estado`.
-4. El historial se mantiene en memoria de sesión (colo FIFO de 30 muestras) para no saturar el almacenamiento del dispositivo.
+4. Cada ESP32 guarda además una muestra por minuto en la tabla `lecturas` de Supabase. Al abrirse (y al volver del segundo plano), la app trae de ahí lo que pasó mientras estaba cerrada y lo fusiona con su historial local (una muestra por minuto, últimas 26 h, guardado en el teléfono).
 5. Si no hay telemetría, la app muestra **SIN SEÑAL**: nunca asume un estado verde falso.
 
 ## Pantallas principales
@@ -58,7 +72,7 @@ src/componentes/  encabezado, resumen, gráfica, hojas y panel admin
 src/estado/       monitor ambiental y sesión de administración
 src/logica/       NOM-172, confort, alertas y grupos vulnerables
 src/modelos/      lecturas, ajustes y estaciones
-src/servicios/    cliente MQTT, almacenamiento y notificaciones
+src/servicios/    cliente MQTT, histórico en Supabase, almacenamiento y notificaciones
 pruebas/          suite de pruebas de la lógica
 herramientas/     configuración de cuenta e inicio de sesión de Expo
 ```

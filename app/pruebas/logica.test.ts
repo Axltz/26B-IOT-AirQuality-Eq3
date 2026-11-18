@@ -17,6 +17,7 @@ import {
   type Dispositivo,
 } from '../src/modelos/ajustes';
 import { lecturaDesdeJson } from '../src/modelos/lectura';
+import { filasALecturas, urlConsultaLecturas } from '../src/servicios/historialNube';
 
 const ahora = new Date(2026, 10, 8, 13, 20).getTime();
 const aire = (o: object) => evaluarAire({ fecha: ahora, ...o });
@@ -360,5 +361,44 @@ describe('Enlace automático de estación', () => {
       'ultimo',
     );
     assert.equal(estacionPeorRiesgo(nodos, {}), null);
+  });
+});
+
+describe('Histórico en Supabase', () => {
+  test('las filas de la tabla lecturas se convierten en lecturas', () => {
+    const [l] = filasALecturas([
+      {
+        creado_en: '2026-11-18T19:20:00+00:00',
+        pm1: 6.1, pm25: 12.4, pm10: 20, co: 1.2, temp: 24.5, hum: 58,
+        nivel_general: 0, dominante: 'PM2.5',
+      },
+    ]);
+    assert.equal(l.fecha, Date.parse('2026-11-18T19:20:00Z'));
+    assert.equal(l.pm25, 12.4);
+    assert.equal(l.temperatura, 24.5);
+    assert.equal(l.humedad, 58);
+    assert.equal(l.nivelReportado, 0);
+  });
+
+  test('se descartan filas sin fecha válida o sin datos', () => {
+    assert.deepEqual(filasALecturas(null), []);
+    assert.deepEqual(filasALecturas({ message: 'error' }), []);
+    assert.equal(
+      filasALecturas([
+        { creado_en: 'no es fecha', pm25: 10 },
+        { creado_en: '2026-11-18T19:20:00Z' },
+        { creado_en: '2026-11-18T19:21:00Z', temp: null, hum: null, pm25: 9 },
+      ]).length,
+      1,
+    );
+  });
+
+  test('la consulta filtra por tópico y fecha, ordenada y paginada', () => {
+    const url = urlConsultaLecturas('https://x.supabase.co', 'colectivo/aire/nodo1', Date.UTC(2026, 10, 18, 19), 1000);
+    assert.ok(url.startsWith('https://x.supabase.co/rest/v1/lecturas?select='));
+    assert.ok(url.includes('topico=eq.colectivo%2Faire%2Fnodo1'));
+    assert.ok(url.includes('creado_en=gt.2026-11-18T19%3A00%3A00.000Z'));
+    assert.ok(url.includes('order=creado_en.asc'));
+    assert.ok(url.includes('limit=1000&offset=1000'));
   });
 });

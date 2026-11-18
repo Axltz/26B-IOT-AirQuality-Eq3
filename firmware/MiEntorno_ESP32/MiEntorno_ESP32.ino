@@ -7,6 +7,21 @@
 #include <PubSubClient.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+// Histórico en Supabase: copia secretos.ejemplo.h como secretos.h (ignorado por
+// Git) y pon la URL del proyecto y la clave publicable. Sin secretos.h el nodo
+// funciona igual, solo sin guardar el histórico en la nube.
+#if __has_include("secretos.h")
+#include "secretos.h"
+#define HISTORICO_NUBE 1
+#else
+#define HISTORICO_NUBE 0
+#endif
+
+// Cada cuánto se guarda una fila en la tabla `lecturas` de Supabase
+const unsigned long INTERVALO_NUBE_MS = 60000;
 
 // Inicializa el display LCD I2C con dirección 0x27 y formato 16x2
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -85,6 +100,57 @@ void reconnect_mqtt()
   }
 }
 
+// Agrega un campo numérico al JSON; los valores NaN se mandan como null
+String campoJson(const char *nombre, float valor, int decimales)
+{
+  return String("\"") + nombre + "\":" + (isnan(valor) ? String("null") : String(valor, decimales));
+}
+
+// Inserta una fila en la tabla `lecturas` de Supabase (Data API por HTTPS).
+// La hora la pone el servidor, así que el ESP32 no necesita reloj (NTP).
+void guardar_en_supabase(float pm1, float pm25, float pm10, float co, float temp, float hum,
+                         int nivel, const String &dominante)
+{
+#if HISTORICO_NUBE
+  WiFiClientSecure clienteSeguro;
+  // Prototipo: se cifra la conexión pero no se valida el certificado del
+  // servidor. Para producción, cargar el certificado raíz con setCACert().
+  clienteSeguro.setInsecure();
+
+  HTTPClient http;
+  http.setTimeout(5000);
+  if (!http.begin(clienteSeguro, String(SUPABASE_URL) + "/rest/v1/lecturas"))
+  {
+    Serial.println("[SUPABASE] URL inválida, revisa secretos.h");
+    return;
+  }
+  http.addHeader("apikey", SUPABASE_PUBLISHABLE_KEY);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Prefer", "return=minimal");
+
+  String cuerpo = "{\"topico\":\"" + mqtt_topic + "\"," +
+                  campoJson("pm1", pm1, 1) + "," +
+                  campoJson("pm25", pm25, 1) + "," +
+                  campoJson("pm10", pm10, 1) + "," +
+                  campoJson("co", co, 2) + "," +
+                  campoJson("temp", temp, 1) + "," +
+                  campoJson("hum", hum, 1) + "," +
+                  "\"nivel_general\":" + String(nivel) + "," +
+                  "\"dominante\":\"" + dominante + "\"}";
+
+  int codigo = http.POST(cuerpo);
+  if (codigo == 201)
+  {
+    Serial.println("[SUPABASE] Lectura guardada en el histórico.");
+  }
+  else
+  {
+    Serial.printf("[SUPABASE] Error %d: %s\n", codigo, http.getString().c_str());
+  }
+  http.end();
+#endif
+}
+
 // Inicializa puertos seriales, pines digitales, pantalla y servicios de red
 void setup()
 {
@@ -135,6 +201,8 @@ void loop()
   static float pm1 = 0.0;
   static float pm25 = 0.0;
   static float pm10 = 0.0;
+  // Evita guardar en el histórico los ceros iniciales antes de la primera trama
+  static bool pmsListo = false;
 
   // Limpia el búfer serial para evitar retrasos en la lectura de datos
   while (Serial2.available() > 32)
@@ -162,6 +230,7 @@ void loop()
           pm25 = (float)valPM25;
         if (valPM10 < 1000)
           pm10 = (float)valPM10;
+        pmsListo = true;
       }
     }
   }
@@ -279,6 +348,17 @@ void loop()
                    ",\"estado\":\"" + estadoCalidad + "\"}";
 
   client.publish(mqtt_topic.c_str(), payload.c_str());
+
+  // Guarda una muestra por minuto en Supabase (histórico aunque la app esté cerrada)
+  static unsigned long ultimoEnvioNube = 0;
+  static bool primerEnvioNube = true;
+  if (HISTORICO_NUBE && pmsListo && (primerEnvioNube || millis() - ultimoEnvioNube >= INTERVALO_NUBE_MS))
+  {
+    primerEnvioNube = false;
+    ultimoEnvioNube = millis();
+    guardar_en_supabase(pm1_compensado, pm25_compensado, pm10_compensado, ppmCO,
+                        temperatura, humedad, nivelDominante, contaminanteDominante);
+  }
 
   // Alterna dinámicamente las dos vistas de texto en la pantalla LCD 1602
   static bool vistaLcd = false;

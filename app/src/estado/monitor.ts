@@ -30,6 +30,7 @@ import {
   obtenerUltimaLecturaMqtt,
   sondearNodos,
 } from '../servicios/clienteMqtt';
+import { traerHistorialNube } from '../servicios/historialNube';
 import {
   abiertaDesdeNotificacion,
   escucharToques,
@@ -52,7 +53,8 @@ export const DURACION_SIMULACION = 60_000;
 
 /**
  * Estado central de la app: consulta al ESP32 cada pocos segundos, guarda el
- * historial, evalúa la calidad del aire y lanza las notificaciones.
+ * historial (local + el que el ESP32 sube a Supabase), evalúa la calidad del
+ * aire y lanza las notificaciones.
  */
 export class Monitor {
   ajustes: Ajustes = ajustesPorDefecto();
@@ -78,6 +80,9 @@ export class Monitor {
   private version = 0;
   // Marca la última notificación cuando frecuencia es 'promedio'
   private ultimoNotificado: number | null = null;
+  /** Por dispositivo: fecha de la última fila traída de Supabase (consultas incrementales). */
+  private nubeHasta = new Map<string, number>();
+  private nubeEnCurso = new Set<string>();
 
   // ------------------------------------------------------------ suscripción
 
@@ -241,6 +246,8 @@ export class Monitor {
     if (this.consultando || !this.cargado) return;
     this.consultando = true;
     const d = this.dispositivo;
+    // En paralelo: no retrasa la lectura en vivo.
+    if (traerHistorial) void this.traerHistorialNube(d);
     try {
       let nueva: Lectura;
       if (d.demo) {
@@ -287,6 +294,28 @@ export class Monitor {
       if (externas?.length && d.id === this.dispositivo.id) this.fusionar(externas);
     } catch {
       // /api/historial es opcional.
+    }
+  }
+
+  /**
+   * Trae de Supabase lo que el ESP32 guardó mientras la app estaba cerrada.
+   * Solo pide lo posterior a la última fila ya traída.
+   */
+  private async traerHistorialNube(d: Dispositivo) {
+    if (d.demo || !d.topicoMqtt || this.nubeEnCurso.has(d.id)) return;
+    this.nubeEnCurso.add(d.id);
+    try {
+      const desde = Math.max(Date.now() - RETENCION, this.nubeHasta.get(d.id) ?? 0);
+      const externas = await traerHistorialNube(d.topicoMqtt, desde);
+      // Si cambió de dispositivo a medio camino, se descarta y se vuelve a pedir después.
+      if (!externas.length || d.id !== this.dispositivo.id) return;
+      this.nubeHasta.set(d.id, externas[externas.length - 1].fecha);
+      this.fusionar(externas);
+      this.avisarCambios();
+    } catch (e) {
+      console.warn('No se pudo traer el histórico de Supabase:', e);
+    } finally {
+      this.nubeEnCurso.delete(d.id);
     }
   }
 

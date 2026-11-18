@@ -39,6 +39,7 @@ Prototipo IoT de bajo costo que demuestra una **arquitectura de extremo a extrem
 │  • Transporte: TCP (Puerto 1883 para ESP32, Puerto 8884 WebSockets)    │
 │  • Protocolo de Aplicación: MQTT (Broker broker.hivemq.com)            │
 │  • Tópico de Difusión: "colectivo/aire/nodo1"                          │
+│  • Histórico: Supabase (HTTPS, 1 muestra por minuto por nodo)          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼ [Suscripción en Tiempo Real]
@@ -117,7 +118,9 @@ AURA-172/
 ├── README.md                # Documentación oficial del proyecto
 ├── firmware/                # Código fuente para microcontroladores
 │   └── MiEntorno_ESP32/
-│       └── MiEntorno_ESP32.ino   # Firmware Arduino C++ con MQTT y LCD 1602
+│       ├── MiEntorno_ESP32.ino   # Firmware Arduino C++ con MQTT, LCD 1602 e histórico en Supabase
+│       └── secretos.ejemplo.h    # Plantilla de credenciales de Supabase (copiar como secretos.h)
+├── supabase/migrations/     # SQL de la tabla de histórico `lecturas`
 ├── app/                     # Aplicación móvil React Native (Expo)
 │   ├── assets/              # Iconos y recursos gráficos
 │   ├── src/
@@ -147,14 +150,26 @@ AURA-172/
    - `PubSubClient` (por Nick O'Leary)
    - `DHT sensor library` (por Adafruit)
    - `LiquidCrystal I2C` (por Frank de Brabander)
+   - `HTTPClient` y `WiFiClientSecure` ya vienen con el soporte de placas ESP32; no se instalan aparte.
 3. **Asignar un ID único a cada nodo.** En la línea `const char* NODO_ID = "nodo1";` cambia el valor por `nodo2`, `nodo3`, etc. antes de compilar cada ESP32. El tópico MQTT se forma automáticamente como `colectivo/aire/<NODO_ID>`.
-4. Seleccionar la placa **ESP32 Dev Module** y el puerto COM.
-5. Compilar y subir el programa.
-6. Si no hay red guardada, conectarse con un celular a la red Wi-Fi `ESP32_Aire_Config` para ingresar el SSID y contraseña del módem local.
+4. **(Opcional) Histórico en la nube.** Copia `firmware/MiEntorno_ESP32/secretos.ejemplo.h` como `secretos.h` en la misma carpeta y pon la URL y la clave publicable de Supabase (ver la sección 2). `secretos.h` está en `.gitignore`. Sin ese archivo el nodo compila y funciona igual, solo sin guardar histórico.
+5. Seleccionar la placa **ESP32 Dev Module** y el puerto COM.
+6. Compilar y subir el programa.
+7. Si no hay red guardada, conectarse con un celular a la red Wi-Fi `ESP32_Aire_Config` para ingresar el SSID y contraseña del módem local.
 
 > **Nodos nuevos:** cada ESP32 debe tener un `NODO_ID` distinto y el mismo ID debe registrarse en el Panel de Administración de la app con su tópico `colectivo/aire/nodoX`. El broker por defecto es `broker.hivemq.com`.
 
-### 2. Ejecución de la Aplicación Móvil
+### 2. Histórico en la nube (Supabase)
+
+Cada ESP32 guarda **una lectura por minuto** directamente en Supabase por HTTPS; la app la consulta al abrirse para mostrar lo que pasó mientras estaba cerrada. No hace falta ninguna computadora encendida: basta con que el nodo tenga luz y Wi-Fi. El MQTT cada 2 s se mantiene para el modo en vivo.
+
+1. En Supabase, abre **SQL Editor → New query**, pega el contenido de [`supabase/migrations/20261118200000_lecturas.sql`](supabase/migrations/20261118200000_lecturas.sql) y pulsa **Run**. Crea la tabla `lecturas`, activa RLS y deja que la clave publicable solo pueda **leer e insertar** (no editar ni borrar).
+2. Copia la **Project URL** (**Connect**) y la **clave publicable** `sb_publishable_…` (**Settings → API Keys**). La clave secreta no se usa en ningún lado.
+3. Firmware: crea `secretos.h` a partir de `secretos.ejemplo.h` (paso 4 de la sección 1).
+4. App: copia `app/.env.example` como `app/.env.local` con los mismos valores y reinicia Expo. Para el APK, da de alta las variables en EAS (ver `app/README.md`).
+5. Comprueba: en el Monitor Serial aparece `[SUPABASE] Lectura guardada en el histórico.` cada minuto y en **Table Editor → lecturas** aparecen filas con el tópico del nodo.
+
+### 3. Ejecución de la Aplicación Móvil
 ```bash
 # Entrar a la carpeta de la aplicación
 cd app
@@ -162,7 +177,7 @@ cd app
 # Instalar dependencias
 npm install
 
-# Correr suite de pruebas unitarias (12 tests automáticos)
+# Correr suite de pruebas unitarias
 npm test
 
 # Verificar tipos sin errores
@@ -174,13 +189,13 @@ npm start
 - Presiona `w` para abrir en navegador web.
 - O escanea el código QR con **Expo Go** en tu dispositivo físico Android/iOS (asegúrate de que el celular esté en la misma red local que la computadora).
 
-### 3. Demos con nodos reales
+### 4. Demos con nodos reales
 
 La demostración del sistema se hace con nodos ESP32 físicos. Cada placa se flashea con un `NODO_ID` distinto y publica en `colectivo/aire/<NODO_ID>` cada 2 segundos. Después, en la app entra a **Ajustes → Panel de Administración**, agrega el tópico de cada nodo y usa **Activar** para cambiar la estación visualizada.
 
 La guía completa de demos está en [`docs/demos/GUIA_DEMOS.md`](docs/demos/GUIA_DEMOS.md).
 
-### 4. Generación de APK Autónomo para Android (EAS Build)
+### 5. Generación de APK Autónomo para Android (EAS Build)
 Para instalar la aplicación de forma permanente en cualquier dispositivo Android sin necesidad de encender la computadora ni usar Expo Go:
 ```bash
 cd app

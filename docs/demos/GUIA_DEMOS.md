@@ -43,6 +43,14 @@ El PMS5003 entrega **PM1, PM2.5 y PM10**; la NOM-172 clasifica PM2.5 y PM10, mie
 
 **Qué observar:** el semáforo físico y la app coinciden en los cinco estados de la NOM-172; el hero jerarquiza el contaminante dominante; la gráfica muestra la tendencia de la sesión; la LCD alterna riesgo y microclima.
 
+### Histórico con la app cerrada
+
+Con `secretos.h` configurado (ver README, sección 2), el nodo guarda una fila por minuto en Supabase:
+
+1. Cierra la app y deja el nodo encendido unos minutos.
+2. En el Monitor Serial debe aparecer `[SUPABASE] Lectura guardada en el histórico.` cada minuto.
+3. Abre la app: la gráfica **Últimas 12 h** ya incluye esos minutos, aunque la app no estuvo abierta.
+
 ---
 
 ## 2. Sumar un nodo desde la app
@@ -72,6 +80,7 @@ El panel también permite editar, dar de baja nodos y registrar administradores.
 - [ ] Firmware compilado con el `NODO_ID` correcto para cada ESP32.
 - [ ] El nodo publica en `colectivo/aire/nodoX`.
 - [ ] La app muestra **En vivo** y el nivel NOM-172 correcto.
+- [ ] Llegan filas nuevas a **Table Editor → lecturas** de Supabase cada minuto.
 - [ ] Semáforo físico, LCD y app coinciden en los cinco estados.
 - [ ] El administrador puede agregar, editar y activar un nodo nuevo.
 - [ ] Las alertas de empeoramiento y mejora se disparan con el umbral elegido.
