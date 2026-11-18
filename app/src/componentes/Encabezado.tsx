@@ -26,7 +26,7 @@ export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
           onPress={alAbrirAjustes}
           accessibilityRole="button"
           accessibilityLabel="Ajustes"
-          style={({ pressed }) => [estilos.campana, sombraSuave, { opacity: pressed ? 0.7 : 1 }]}
+          style={({ pressed }) => [estilos.campana, sombraSuave, pressed && { backgroundColor: Paleta.relleno }]}
         >
           <Icono nombre="cog-outline" tam={19} />
         </Pressable>
@@ -34,7 +34,7 @@ export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
           onPress={() => m.mostrarVista(m.vista === 'notificacion' ? 'resumen' : 'notificacion')}
           accessibilityRole="button"
           accessibilityLabel={m.hayAvisoSinLeer ? 'Avisos, 1 sin leer' : 'Avisos'}
-          style={({ pressed }) => [estilos.campana, sombraSuave, { opacity: pressed ? 0.7 : 1 }]}
+          style={({ pressed }) => [estilos.campana, sombraSuave, pressed && { backgroundColor: Paleta.relleno }]}
         >
           <Icono nombre="bell-outline" tam={19} />
           {m.hayAvisoSinLeer ? <View style={estilos.puntoCampana} /> : null}

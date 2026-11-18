@@ -42,3 +42,24 @@ export function alfa(hex: string, a: number): string {
     .padStart(2, '0');
   return `${hex.slice(0, 7)}${n}`;
 }
+
+/**
+ * Mezcla `hex` sobre `fondo` y devuelve un color OPACO equivalente a pintar
+ * `hex` con transparencia `a` encima de `fondo`.
+ *
+ * Úsalo en vez de `alfa()` para fondos y bordes de vistas con `elevation`: en
+ * Android la sombra de elevación se dibuja debajo de la vista y se ve a través
+ * de cualquier fondo translúcido como un recuadro gris interior.
+ */
+export function mezclar(hex: string, fondo: string, a: number): string {
+  const t = Math.max(0, Math.min(1, a));
+  const canal = (c: string, i: number) => parseInt(c.slice(1 + i * 2, 3 + i * 2), 16);
+  return (
+    '#' +
+    [0, 1, 2]
+      .map((i) => Math.round(canal(hex, i) * t + canal(fondo, i) * (1 - t)))
+      .map((v) => v.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase()
+  );
+}

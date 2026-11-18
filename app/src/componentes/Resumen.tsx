@@ -17,7 +17,7 @@ import {
   type PuntoGrafica,
 } from '../logica/historial';
 import type { Lectura } from '../modelos/lectura';
-import { Paleta, alfa } from '../tema';
+import { Paleta, alfa, mezclar } from '../tema';
 import {
   BarraIndice,
   ChipIcono,
@@ -462,13 +462,20 @@ function TarjetaMetrica(p: {
       accessibilityState={{ selected: activa }}
       accessibilityLabel={`${etiqueta}: ${p.valor}, ${p.detalle}`}
       android_ripple={{ color: 'transparent' }}
+      // Colores opacos (mezclar) y sin `opacity` al presionar: en Android la
+      // sombra de `elevation` se ve a través de fondos translúcidos como un
+      // recuadro gris dentro de la tarjeta.
       style={({ pressed }) => [
         estilos.metrica,
         activa && [
-          { borderColor: alfa(p.color, 0.6), borderWidth: 1.3, backgroundColor: alfa(p.color, 0.035) },
+          {
+            borderColor: mezclar(p.color, Paleta.superficie, 0.6),
+            borderWidth: 1.3,
+            backgroundColor: mezclar(p.color, Paleta.superficie, 0.035),
+          },
           sombraSuave,
         ],
-        pressed && { opacity: 0.85 },
+        pressed && { backgroundColor: mezclar(p.color, Paleta.superficie, 0.09) },
       ]}
     >
       <ChipIcono nombre={p.icono} color={p.color} fondo={p.fondo} tam={26} />
