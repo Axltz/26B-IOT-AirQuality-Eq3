@@ -2,11 +2,12 @@
 // El script de inicio local la llama. La primera vez guía paso a paso:
 //   1. Crear una cuenta gratis de Expo (si no tienes).
 //   2. Iniciar sesión en esta computadora (queda guardada).
-//   3. Registrar el proyecto en tu cuenta (Expo Go en iPhone lo exige).
+//   3. Revisar que tu cuenta tenga acceso al proyecto (Expo Go en iPhone lo exige).
 // Las siguientes veces solo revisa que todo siga bien y termina en segundos.
 //
-// El registro escribe "owner" y "extra.eas.projectId" en app.json, así que
-// esos dos datos son distintos en la computadora de cada quien. Es normal.
+// El proyecto es de la organización del equipo ("owner" en app.json). Si tu
+// cuenta es miembro, no se toca app.json. Solo si NO tienes acceso se registra
+// una copia en tu cuenta personal; ese app.json modificado no se sube al repo.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -118,10 +119,18 @@ const app = leerApp();
 const dueno = app.expo.owner;
 const idProyecto = app.expo.extra?.eas?.projectId;
 
-if (dueno !== cuenta || !idProyecto) {
+// Miembro de la organización dueña del proyecto: `eas project:info` solo
+// responde bien si la cuenta tiene acceso a ese projectId.
+const tieneAcceso = () =>
+  npx('-y eas-cli@27 project:info', { stdio: 'ignore', env: { ...process.env, EAS_NO_VCS: '1' } }).status === 0;
+
+if (idProyecto && dueno !== cuenta && tieneAcceso()) {
+  console.log(`\n   Listo: tu cuenta "${cuenta}" tiene acceso al proyecto "@${dueno}/${app.expo.slug}".`);
+} else if (dueno !== cuenta || !idProyecto) {
   console.log(`
    PASO 3 - Registrar el proyecto en tu cuenta (automático)
-   Expo Go en iPhone solo abre proyectos de tu propia cuenta.
+   Tu cuenta no es miembro de "${dueno}". Pide que te agreguen a la
+   organización en expo.dev; mientras tanto se registra una copia en tu cuenta.
    Registrando "@${cuenta}/${app.expo.slug}"... la primera vez tarda un poco.
 `);
   const respaldo = rutaAppJson + '.respaldo';

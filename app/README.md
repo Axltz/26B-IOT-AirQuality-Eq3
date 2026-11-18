@@ -17,6 +17,19 @@ npm run typecheck  # verificación de tipos
 npm run iniciar-sesion  # iniciar sesión en Expo (si tu cuenta lo requiere)
 ```
 
+## Cuenta de Expo del equipo
+
+El proyecto vive en la organización de Expo **`amiguelv05s-team`** (`owner` y
+`extra.eas.projectId` en `app.json`). Ambos valores son los mismos para todo el
+equipo: **no los cambies ni corras `eas init`**.
+
+1. Crea tu cuenta gratis en [expo.dev](https://expo.dev) y pide que te agreguen
+   como miembro de la organización (expo.dev → organización → *Members*).
+2. Inicia sesión en tu computadora: `npm run iniciar-sesion`.
+3. Comprueba el acceso: `node herramientas/configurar-cuenta.mjs` debe decir
+   *"tiene acceso al proyecto @amiguelv05s-team/mi-entorno"*.
+4. En el iPhone, inicia sesión en Expo Go con tu cuenta para abrir el proyecto.
+
 Para generar el APK con EAS Build:
 
 ```bash
