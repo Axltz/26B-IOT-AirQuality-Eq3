@@ -1,131 +1,94 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { View } from 'react-native';
 
 import { useMonitor } from '../estado/monitor';
-import { Paleta } from '../tema';
-import { Etiqueta, Icono, PuntoEstado, T, sombraSuave } from './comunes';
+import { useTema } from '../estado/tema';
+import { BotonIcono, Etiqueta, Icono, PuntoEstado, T } from './comunes';
 
-/** "AURA-172 / nombre estación" solo muestra el nodo activo sin abrir selector. */
-export function Encabezado({ alAbrirAjustes }: { alAbrirAjustes: () => void }) {
+/**
+ * Cabecera de Inicio: «Mi entorno», la estación activa con su punto de estado
+ * (cian = sistema; rojo si no hay conexión), y accesos a Ajustes y Alertas.
+ */
+export function Encabezado({ tinta }: { tinta: string }) {
   const m = useMonitor();
-  const colorConexion =
-    m.conexion === 'enLinea' ? Paleta.verde : m.conexion === 'conectando' ? Paleta.amarillo : Paleta.rojo;
+  const tema = useTema();
+  const colorConexion = m.conexion === 'sinConexion' ? tema.peligro : tema.sistema;
+  const estado =
+    m.conexion === 'enLinea' ? 'en vivo' : m.conexion === 'conectando' ? 'conectando' : 'sin conexión';
   return (
-    <View style={estilos.fila}>
-      <View style={{ flexShrink: 1, paddingVertical: 4 }}>
-        <Etiqueta>AURA-172</Etiqueta>
-        <View style={estilos.nombre}>
-          <Icono nombre="map-marker-outline" tam={16} color={Paleta.verde} />
-          <T t={17} f="extra" numberOfLines={1} style={{ flexShrink: 1 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <View style={{ flexShrink: 1 }} accessible accessibilityLabel={`Mi entorno: ${m.dispositivo.nombre}, ${estado}`}>
+        <Etiqueta c={tinta} style={{ opacity: 0.78 }}>
+          Mi entorno
+        </Etiqueta>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+          <Icono nombre="map-marker-outline" tam={16} color={tinta} />
+          <T t={20} f="display" c={tinta} numberOfLines={1} style={{ flexShrink: 1, letterSpacing: -0.2 }}>
             {m.dispositivo.nombre}
           </T>
-          <PuntoEstado color={colorConexion} pulso={m.conexion === 'conectando'} />
+          <PuntoEstado color={colorConexion} pulso={m.conexion === 'conectando'} halo />
         </View>
       </View>
-      <View style={estilos.acciones}>
-        <Pressable
-          onPress={alAbrirAjustes}
-          accessibilityRole="button"
-          accessibilityLabel="Ajustes"
-          style={({ pressed }) => [estilos.campana, sombraSuave, pressed && { backgroundColor: Paleta.relleno }]}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <BotonIcono icono="cog-outline" etiqueta="Ajustes" alPresionar={() => router.navigate('/ajustes')} />
+        <BotonIcono
+          icono="bell-outline"
+          etiqueta={m.hayAvisoSinLeer ? 'Alertas, 1 sin leer' : 'Alertas'}
+          alPresionar={() => router.navigate('/alertas')}
         >
-          <Icono nombre="cog-outline" tam={19} />
-        </Pressable>
-        <Pressable
-          onPress={() => m.mostrarVista(m.vista === 'notificacion' ? 'resumen' : 'notificacion')}
-          accessibilityRole="button"
-          accessibilityLabel={m.hayAvisoSinLeer ? 'Avisos, 1 sin leer' : 'Avisos'}
-          style={({ pressed }) => [estilos.campana, sombraSuave, pressed && { backgroundColor: Paleta.relleno }]}
-        >
-          <Icono nombre="bell-outline" tam={19} />
-          {m.hayAvisoSinLeer ? <View style={estilos.puntoCampana} /> : null}
-        </Pressable>
+          {m.hayAvisoSinLeer ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 9,
+                width: 9,
+                height: 9,
+                borderRadius: 5,
+                backgroundColor: tema.peligro,
+                borderWidth: 1.5,
+                borderColor: tema.superficie,
+              }}
+            />
+          ) : null}
+        </BotonIcono>
       </View>
     </View>
   );
 }
 
-/** Pestañas "Resumen | Notificación (1)". */
-export function Pestanas() {
-  const m = useMonitor();
-  const pestana = (texto: string, v: 'resumen' | 'notificacion', aviso = false) => {
-    const activa = m.vista === v;
-    return (
-      <Pressable
-        key={v}
-        onPress={() => m.mostrarVista(v)}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: activa }}
-        style={[estilos.pestana, activa && [estilos.pestanaActiva, sombraSuave]]}
-      >
-        <T t={11.5} f="negrita" c={activa ? Paleta.texto : Paleta.textoSuave}>
-          {texto}
-        </T>
-        {aviso ? (
-          <View style={estilos.insignia}>
-            <T t={8.5} f="extra" c="#FFFFFF">
-              1
-            </T>
-          </View>
-        ) : null}
-      </Pressable>
-    );
-  };
+/** Cabecera de las demás vistas: botón «atrás», eyebrow y título. */
+export function CabeceraVista({
+  titulo,
+  eyebrow,
+  tinta,
+  tintaSuave,
+  alVolver,
+  derecha,
+}: {
+  titulo: string;
+  eyebrow?: string;
+  tinta: string;
+  tintaSuave?: string;
+  alVolver?: () => void;
+  derecha?: React.ReactNode;
+}) {
   return (
-    <View style={estilos.pestanas} accessibilityRole="tablist">
-      {pestana('Resumen', 'resumen')}
-      {pestana('Notificación', 'notificacion', m.hayAvisoSinLeer)}
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 }}>
+        {alVolver ? <BotonIcono icono="arrow-left" etiqueta="Volver" alPresionar={alVolver} /> : null}
+        <View style={{ flexShrink: 1 }}>
+          {eyebrow ? (
+            <Etiqueta c={tintaSuave ?? tinta} style={{ opacity: tintaSuave ? 1 : 0.78 }}>
+              {eyebrow}
+            </Etiqueta>
+          ) : null}
+          <T t={20} f="display" c={tinta} accessibilityRole="header" style={{ letterSpacing: -0.2, marginTop: eyebrow ? 2 : 0 }}>
+            {titulo}
+          </T>
+        </View>
+      </View>
+      {derecha}
     </View>
   );
 }
-
-const estilos = StyleSheet.create({
-  fila: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  acciones: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  nombre: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
-  campana: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Paleta.superficie,
-    borderWidth: 1,
-    borderColor: Paleta.borde,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  puntoCampana: {
-    position: 'absolute',
-    top: 8,
-    right: 10,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: Paleta.coral,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-  },
-  pestanas: {
-    flexDirection: 'row',
-    backgroundColor: Paleta.relleno,
-    borderRadius: 12,
-    padding: 3,
-    marginTop: 14,
-  },
-  pestana: {
-    flex: 1,
-    height: 32,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  pestanaActiva: { backgroundColor: Paleta.superficie },
-  insignia: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: Paleta.coral,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

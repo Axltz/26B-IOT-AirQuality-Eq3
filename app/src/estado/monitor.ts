@@ -8,6 +8,7 @@ import type { Metrica } from '../logica/historial';
 import { estacionMasCercana, estacionPeorRiesgo } from '../logica/seleccionEstacion';
 import {
   ajustesPorDefecto,
+  type Apariencia,
   dispositivoActivo,
   esBrokerMqtt,
   normalizarDireccion,
@@ -42,7 +43,6 @@ import {
 import { historialSimulado, lecturaSimulada } from '../servicios/simulador';
 
 export type EstadoConexion = 'conectando' | 'enLinea' | 'sinConexion';
-export type Vista = 'resumen' | 'notificacion';
 
 /** Cada cuánto se guarda una muestra en el historial. */
 const INTERVALO_MUESTRA = 60_000;
@@ -64,8 +64,13 @@ export class Monitor {
   ultimaActualizacion: number | null = null;
   historial: Lectura[] = [];
   alerta: EstadoAlerta | null = null;
-  vista: Vista = 'resumen';
   metrica: Metrica = 'aire';
+  /**
+   * Cuenta las veces que se pidió abrir la pestaña Alertas (al tocar una
+   * notificación o simular una alerta). La barra de pestañas la vigila y
+   * navega a /alertas con el router cuando cambia.
+   */
+  solicitudesAlertas = 0;
 
   private lecturaReal: Lectura | null = null;
   private lecturaSim: Lectura | null = null;
@@ -149,13 +154,6 @@ export class Monitor {
     return !!this.alerta && !this.alerta.leida;
   }
 
-  get mostrarPestanas(): boolean {
-    return (
-      this.vista === 'notificacion' ||
-      (!!this.alerta && (this.alerta.enCurso || !this.alerta.leida))
-    );
-  }
-
   /** El ESP32 activo manda las alertas por push (llegan con la app cerrada). */
   get pushActivo(): boolean {
     return !this.dispositivo.demo && !!this.dispositivo.tokenPush;
@@ -170,7 +168,7 @@ export class Monitor {
     this.iniciado = true;
     try {
       await iniciarNotificaciones();
-      this.limpiezas.push(escucharToques(() => this.mostrarVista('notificacion')));
+      this.limpiezas.push(escucharToques(() => this.abrirAlertas()));
     } catch (e) {
       console.warn('Error inicializando notificaciones en móvil:', e);
     }
@@ -183,7 +181,7 @@ export class Monitor {
     try {
       this.ajustes = await almacen.cargarAjustes();
       await this.prepararDispositivo();
-      if (abiertaDesdeNotificacion() && this.alerta) this.vista = 'notificacion';
+      if (abiertaDesdeNotificacion() && this.alerta) this.solicitudesAlertas++;
     } catch (e) {
       console.warn('Error cargando almacenamiento:', e);
     } finally {
@@ -415,8 +413,7 @@ export class Monitor {
     if (yaEnCurso && this.alerta) {
       await this.fijarAlerta({ ...this.alerta, leida: false, simulada: true });
     }
-    this.vista = 'notificacion';
-    this.avisarCambios();
+    this.abrirAlertas();
 
     const permiso = await permisoFuturo;
     if (this.alerta?.enCurso) await this.notificar('empeoro', this.alerta, true);
@@ -444,9 +441,9 @@ export class Monitor {
 
   // --------------------------------------------------------------- interfaz
 
-  mostrarVista = (v: Vista) => {
-    if (this.vista === v) return;
-    this.vista = v;
+  /** Pide a la interfaz que abra la pestaña Alertas. */
+  abrirAlertas = () => {
+    this.solicitudesAlertas++;
     this.avisarCambios();
   };
 
@@ -456,10 +453,9 @@ export class Monitor {
     this.avisarCambios();
   };
 
-  /** "Entendido, volver al resumen". */
+  /** "Entendido". */
   marcarAvisoLeido = async () => {
     if (this.alerta && !this.alerta.leida) await this.fijarAlerta({ ...this.alerta, leida: true });
-    this.vista = 'resumen';
     this.avisarCambios();
   };
 
@@ -524,6 +520,14 @@ export class Monitor {
     await this.guardarAjustes({ ...this.ajustes, intervaloAlertaHoras: horas });
   };
 
+  fijarApariencia = async (apariencia: Apariencia) => {
+    await this.guardarAjustes({ ...this.ajustes, apariencia });
+  };
+
+  fijarFondoPorNivel = async (fondoPorNivel: boolean) => {
+    await this.guardarAjustes({ ...this.ajustes, fondoPorNivel });
+  };
+
   fijarModoConexion = async (modo: 'cercana' | 'peor') => {
     if (modo === 'cercana') {
       await this._conectarPorGps();
@@ -583,7 +587,6 @@ export class Monitor {
     if (id === this.ajustes.activoId) return;
     await this.guardarHistorial();
     await this.guardarAjustes({ ...this.ajustes, activoId: id });
-    this.vista = 'resumen';
     await this.prepararDispositivo();
     this.avisarCambios();
     // Reconectar MQTT al tópico y broker del nuevo dispositivo activo
