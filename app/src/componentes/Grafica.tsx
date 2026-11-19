@@ -3,7 +3,8 @@ import { View, type GestureResponderEvent } from 'react-native';
 import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop, Text as SvgText } from 'react-native-svg';
 
 import { METRICAS, type Metrica, type PuntoGrafica } from '../logica/historial';
-import { Fuente, Paleta } from '../tema';
+import { useTema } from '../estado/tema';
+import { Fuente } from '../tema';
 
 const IZQ = 10;
 const DER = 18;
@@ -22,6 +23,7 @@ export function Grafica({
   color: string;
   alto?: number;
 }) {
+  const tema = useTema();
   const [ancho, setAncho] = useState(0);
   const [sel, setSel] = useState<number | null>(null);
   const soltar = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -145,7 +147,7 @@ export function Grafica({
             </LinearGradient>
           </Defs>
 
-          <Line x1={IZQ - 4} y1={base + 0.5} x2={ancho - DER + 4} y2={base + 0.5} stroke={Paleta.borde} strokeWidth={1} />
+          <Line x1={IZQ - 4} y1={base + 0.5} x2={ancho - DER + 4} y2={base + 0.5} stroke={tema.borde} strokeWidth={1} />
 
           {valores.length === 0 ? (
             <SvgText
@@ -153,7 +155,7 @@ export function Grafica({
               y={ARRIBA + altoUtil / 2}
               fontSize={11}
               fontFamily={Fuente.media}
-              fill={Paleta.textoTenue}
+              fill={tema.textoSuave}
               textAnchor="middle"
             >
               Reuniendo datos…
@@ -199,7 +201,7 @@ export function Grafica({
                 cx={x(i)}
                 cy={y(p.valor)}
                 r={r}
-                fill="#FFFFFF"
+                fill={tema.superficie}
                 stroke={color}
                 strokeWidth={destacado ? 2.4 : 1.8}
               />
@@ -212,7 +214,7 @@ export function Grafica({
               y={y(puntos[mostrar].valor!) - 11}
               fontSize={10}
               fontFamily={Fuente.extra}
-              fill={Paleta.texto}
+              fill={tema.texto}
               textAnchor="middle"
             >
               {fmt(puntos[mostrar].valor!)}
@@ -226,7 +228,7 @@ export function Grafica({
               y={alto - 6}
               fontSize={8.5}
               fontFamily={Fuente.seminegrita}
-              fill={puntos[i].esAhora ? Paleta.textoSuave : Paleta.textoTenue}
+              fill={puntos[i].esAhora ? tema.texto : tema.textoSuave}
               textAnchor="middle"
             >
               {puntos[i].etiqueta}

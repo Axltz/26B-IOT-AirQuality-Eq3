@@ -1,4 +1,6 @@
 export type ModoConexion = 'cercana' | 'peor';
+/** Tema de la app: claro, oscuro o el del sistema. */
+export type Apariencia = 'claro' | 'oscuro' | 'sistema';
 
 /** Una estación de monitoreo de calidad del aire. */
 export interface Dispositivo {
@@ -53,6 +55,10 @@ export interface Ajustes {
   alertaPeriodica: boolean;
   /** Cada cuántas horas se manda la alerta periódica (1-12) */
   intervaloAlertaHoras: number;
+  /** Tema de la app (por defecto, el del sistema). */
+  apariencia: Apariencia;
+  /** Inicio y Contaminantes toman el color del nivel del aire (por defecto, sí). */
+  fondoPorNivel: boolean;
 }
 
 export const DISPOSITIVO_DEMO: Dispositivo = {
@@ -81,6 +87,8 @@ export function ajustesPorDefecto(): Ajustes {
     horaReporte: '08:00',
     alertaPeriodica: false,
     intervaloAlertaHoras: 3,
+    apariencia: 'sistema',
+    fondoPorNivel: true,
   };
 }
 
@@ -199,6 +207,8 @@ export function ajustesDesdeJson(j: unknown): Ajustes {
     horaReporte: typeof o.horaReporte === 'string' && o.horaReporte ? o.horaReporte : '08:00',
     alertaPeriodica: typeof o.alertaPeriodica === 'boolean' ? o.alertaPeriodica : false,
     intervaloAlertaHoras: typeof o.intervaloAlertaHoras === 'number' && o.intervaloAlertaHoras >= 1 ? Math.min(12, o.intervaloAlertaHoras) : 3,
+    apariencia: o.apariencia === 'claro' || o.apariencia === 'oscuro' ? o.apariencia : 'sistema',
+    fondoPorNivel: typeof o.fondoPorNivel === 'boolean' ? o.fondoPorNivel : true,
   };
 }
 

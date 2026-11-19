@@ -1,10 +1,11 @@
-import { LinearGradient } from 'expo-linear-gradient';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 
+import { QUE_HACER_AHORA, indiceRecomendacion } from '../contenido/recomendaciones';
 import { useMonitor } from '../estado/monitor';
+import { useEstilos, useTema } from '../estado/tema';
 import type { EstadoAlerta } from '../logica/alertas';
 import {
-  COLORES_NIVELES,
   CONTAMINANTES,
   NIVELES,
   concentracion,
@@ -13,43 +14,55 @@ import {
   posicionNivel,
   recomendacion,
 } from '../logica/calidadAire';
+import { GRUPOS_VULNERABLES, grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
 import { horaCorta } from '../logica/historial';
-import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../logica/gruposVulnerables';
-import { Paleta, alfa } from '../tema';
-import { BarraIndice, BotonPrincipal, ChipIcono, Etiqueta, Icono, Pastilla, T, Tarjeta, ValorConUnidad, numero, type NombreIcono } from './comunes';
+import type { PaletaTema, TintaFondo } from '../tema';
+import {
+  BotonIcono,
+  BotonPrincipal,
+  BotonSecundario,
+  ChipIcono,
+  Etiqueta,
+  Icono,
+  Pastilla,
+  T,
+  Tarjeta,
+  numero,
+  type NombreIcono,
+} from './comunes';
+import { Medidor } from './Medidor';
+import { MensajeNivel } from './Nivel';
 
-/** Pestaña "Notificación": detalle de la alerta de calidad del aire. */
-export function VistaNotificacion() {
+const volverAInicio = () => router.navigate('/');
+
+/** Pestaña Alertas: detalle del aviso de calidad del aire o «Todo en orden». */
+export function VistaNotificacion({ fondo }: { fondo: TintaFondo }) {
   const m = useMonitor();
-  return (
-    <ScrollView contentContainerStyle={estilos.contenido}>
-      {m.alerta ? <DetalleAlerta a={m.alerta} /> : <SinAvisos />}
-    </ScrollView>
-  );
+  return m.alerta ? <DetalleAlerta a={m.alerta} fondo={fondo} /> : <SinAvisos fondo={fondo} />;
 }
 
-function DetalleAlerta({ a }: { a: EstadoAlerta }) {
+function DetalleAlerta({ a, fondo }: { a: EstadoAlerta; fondo: TintaFondo }) {
   const m = useMonitor();
+  const tema = useTema();
   const enCurso = a.enCurso;
-  // Mientras dura se muestra el nivel actual; al terminar, el máximo.
+  // Mientras dura se muestra el nivel actual; al terminar, el máximo (medidor).
   const cat = nivel(enCurso ? a.nivel : a.nivelMaximo);
+  // «El aire mejoró a…»: el nivel de ahora (o Buena si no hay lectura).
+  const nivelMensaje = enCurso ? a.nivel : (m.aire?.nivel.indice ?? 0);
   const c = CONTAMINANTES[a.principal] ?? CONTAMINANTES.sensor;
   const esCo = a.principal === 'co';
   const valor = concentracion(a, a.principal);
   const posicion =
     enCurso && valor !== undefined ? posicionBarra(esCo ? 'co' : 'pm25', valor) : posicionNivel(cat.indice);
-  const color = enCurso ? cat.color : Paleta.verde;
-  const fondo = enCurso ? cat.colorSuave : Paleta.verdeSuave;
 
-  const titulo = enCurso ? `La calidad del aire es ${cat.adjetivo}` : 'La calidad del aire mejoró';
-  const subtitulo = enCurso
+  const detalle = enCurso
     ? `Detectamos una concentración elevada de ${c.enFrase} ${c.exterior ? 'en tu zona' : `en ${a.dispositivo}`}.`
     : `El aire mejoró a las ${horaCorta(a.fin ?? Date.now())}. El punto más alto fue: ${nivel(a.nivelMaximo).nombre}.`;
   const momento = enCurso
     ? Date.now() - a.inicio < 2 * 60_000
-      ? 'Ahora'
-      : `Desde las ${horaCorta(a.inicio)}`
-    : `De ${horaCorta(a.inicio)} a ${horaCorta(a.fin ?? Date.now())}`;
+      ? 'ahora'
+      : `desde las ${horaCorta(a.inicio)}`
+    : `de ${horaCorta(a.inicio)} a ${horaCorta(a.fin ?? Date.now())}`;
   const pie = !enCurso
     ? 'Te avisaremos de nuevo si la calidad del aire vuelve a empeorar.'
     : m.ajustes.alertasActivas && m.ajustes.avisarMejora
@@ -57,177 +70,175 @@ function DetalleAlerta({ a }: { a: EstadoAlerta }) {
       : 'Activa las alertas para saber cuándo mejore la calidad del aire.';
 
   // Personalización por grupo vulnerable (NOM-172): el aviso habla de su caso.
-  const grupo = m.ajustes.usarGrupoVulnerable
-    ? grupoPorId(m.ajustes.grupoVulnerable)
-    : undefined;
+  const grupo = m.ajustes.usarGrupoVulnerable ? grupoPorId(m.ajustes.grupoVulnerable) : undefined;
   const nivelAviso = enCurso ? a.nivel : a.nivelMaximo;
   const recomendacionGrupo = grupo ? recomendacionDeGrupo(grupo.id, nivelAviso) : null;
-  const umbralGrupo = grupo
-    ? umbralEfectivo(m.ajustes.umbralNivel, true, grupo.id)
-    : m.ajustes.umbralNivel;
+  const umbralGrupo = grupo ? umbralEfectivo(m.ajustes.umbralNivel, true, grupo.id) : m.ajustes.umbralNivel;
+
+  // Tres acciones por nivel (textos de la maqueta). Con CO (interiores) se
+  // conserva el consejo de `recomendacion()`, que habla de ventilar y revisar
+  // estufas y calentadores.
+  const acciones: [NombreIcono, string][] = esCo
+    ? [['heart-pulse', recomendacion(enCurso ? cat : NIVELES[0], a.principal)]]
+    : QUE_HACER_AHORA[indiceRecomendacion(nivelMensaje)].map(([i, t]) => [i, t]);
+  if (grupo) {
+    acciones.push([
+      grupo.icono as NombreIcono,
+      `${grupo.nombre}: ${
+        recomendacionGrupo ??
+        `con tu grupo las alertas arrancan desde el nivel ${nivel(umbralGrupo).adjetivo} (${nivel(umbralGrupo).riesgo.toLowerCase()}).`
+      }`,
+    ]);
+  }
 
   return (
-    <View style={{ alignItems: 'center' }}>
-      <IconoAviso color={color} fondo={fondo} resuelta={!enCurso} />
-      <View style={{ marginTop: 12 }}>
-        <Etiqueta c={Paleta.textoSuave}>{enCurso ? 'ALERTA AMBIENTAL' : 'ALERTA RESUELTA'}</Etiqueta>
-      </View>
-      <T t={23} f="extra" style={estilos.titulo}>
-        {titulo}
-      </T>
-      <T t={11.5} c={Paleta.textoSuave} style={estilos.subtitulo}>
-        {subtitulo}
-      </T>
-
-      <LinearGradient
-        colors={[alfa(cat.colorSuave, 0.55), cat.colorSuave]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[estilos.tarjetaAlerta, { borderColor: alfa(cat.color, 0.28) }]}
-      >
-        <View style={estilos.fila}>
-          <T t={10.5} f="negrita" style={{ flex: 1 }}>
-            {momento}
-          </T>
-          {a.simulada ? <Pastilla texto="Simulación" fondo="#FFFFFFB3" /> : null}
-          <Pastilla texto={a.dispositivo} fondo="#FFFFFF" />
-        </View>
-        <View style={[estilos.fila, { marginTop: 12, gap: 10 }]}>
-          <View style={[estilos.exclamacion, { backgroundColor: cat.color }]}>
-            <Icono nombre="exclamation-thick" tam={18} color="#FFFFFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <T t={10} c={Paleta.textoSuave}>
-              {enCurso ? 'Índice AIRE Y SALUD (NOM-172)' : 'Máximo registrado'}
-            </T>
-            <T t={19} f="extra">
-              {cat.nombre}
-            </T>
-            <T t={10} f="seminegrita" c={Paleta.textoSuave}>
-              {cat.riesgo}
-            </T>
-          </View>
-        </View>
-        <View style={[estilos.fila, { marginTop: 12, gap: 8, alignItems: 'stretch' }]}>
-          <View style={[estilos.dato, { flex: 1 }]}>
-            <T t={9.5} c={Paleta.textoSuave}>
-              {esCo ? 'CO' : 'PM2.5'}
-            </T>
-            <ValorConUnidad
-              valor={esCo ? numero(a.co, 1) : numero(a.pm25)}
-              unidad={esCo ? 'ppm' : 'µg/m³'}
-              tam={16}
-              style={{ marginTop: 4 }}
+    <>
+      <View style={{ gap: 18, marginBottom: 6 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <BotonIcono icono="arrow-left" etiqueta="Volver a Inicio" alPresionar={volverAInicio} />
+          <View style={{ flexDirection: 'row', gap: 6, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {a.simulada ? (
+              <Pastilla texto="Simulación" fondo={tema.pildoraSobreFondo} color={tema.pildoraSobreFondoTexto} />
+            ) : null}
+            <Pastilla
+              texto={enCurso ? 'Alerta ambiental' : 'Alerta resuelta'}
+              icono={enCurso ? 'alert-outline' : 'check'}
+              fondo={tema.pildoraSobreFondo}
+              color={tema.pildoraSobreFondoTexto}
             />
           </View>
-          <View style={[estilos.dato, { flex: 2 }]}>
-            <T t={9.5} c={Paleta.textoSuave}>
-              Contaminante principal
-            </T>
-            <T t={14} f="extra" numberOfLines={2} style={{ marginTop: 4 }}>
-              {c.nombre}
-            </T>
-          </View>
         </View>
-        <View style={{ marginTop: 14 }}>
-          <BarraIndice posicion={posicion} colores={COLORES_NIVELES} />
+        <MensajeNivel
+          indice={nivelMensaje}
+          eyebrow={enCurso ? 'El aire empeoró a' : 'El aire mejoró a'}
+          tinta={fondo.tinta}
+          enPastel
+        />
+        <View style={{ gap: 4 }}>
+          <T t={12} f="media" c={fondo.tinta} style={{ opacity: 0.85 }}>
+            {a.dispositivo} · {momento}
+          </T>
+          <T t={12} c={fondo.tintaSuave} style={{ lineHeight: 17 }}>
+            {detalle}
+          </T>
         </View>
-      </LinearGradient>
+      </View>
 
-      <Tarjeta radio={16} style={estilos.salud}>
-        <ChipIcono nombre="heart-pulse" color={Paleta.textoSuave} fondo={Paleta.relleno} tam={32} tamIcono={17} radio={10} />
-        <View style={{ flex: 1 }}>
-          <T t={13} f="extra">
-            Cuida tu salud
+      <Tarjeta style={{ alignItems: 'center', gap: 2 }}>
+        <Etiqueta style={{ alignSelf: 'flex-start' }}>
+          {esCo ? 'CO' : 'PM2.5'} · {enCurso ? 'lectura actual' : 'lectura del aviso'}
+        </Etiqueta>
+        <Medidor
+          posicion={posicion}
+          valor={esCo ? numero(a.co, 1) : numero(a.pm25)}
+          unidad={esCo ? 'ppm' : 'µg/m³'}
+          fin={esCo ? '16+' : '130+'}
+        />
+        <T t={11.5} c={tema.textoSuave} style={{ textAlign: 'center' }}>
+          Contaminante principal:{' '}
+          <T t={11.5} f="negrita">
+            {c.nombre}
           </T>
-          <T t={11} c={Paleta.textoSuave} style={{ marginTop: 3, lineHeight: 16 }}>
-            {recomendacion(enCurso ? cat : NIVELES[0], a.principal)}
-          </T>
+        </T>
+      </Tarjeta>
+
+      <Tarjeta>
+        <T t={15} f="extra">
+          Qué hacer ahora
+        </T>
+        <View style={{ gap: 9 }}>
+          {acciones.map(([icono, texto]) => (
+            <View key={texto} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+              <ChipIcono nombre={icono} color={tema.texto} fondo={tema.superficie2} tam={28} tamIcono={15} radio={9} />
+              <T t={12} style={{ flex: 1, lineHeight: 17, marginTop: 5 }}>
+                {texto}
+              </T>
+            </View>
+          ))}
         </View>
       </Tarjeta>
 
-      {grupo ? (
-        <Tarjeta radio={16} style={[estilos.salud, { borderColor: Paleta.verdeBorde }]}>
-          <ChipIcono
-            nombre={grupo.icono as NombreIcono}
-            color={Paleta.verde}
-            fondo={Paleta.verdeSuave}
-            tam={32}
-            tamIcono={17}
-            radio={10}
-          />
-          <View style={{ flex: 1 }}>
-            <T t={13} f="extra">
-              Aviso personalizado · {grupo.nombre}
-            </T>
-            <T t={11} c={Paleta.textoSuave} style={{ marginTop: 3, lineHeight: 16 }}>
-              {recomendacionGrupo ??
-                `Con tu grupo las alertas arrancan desde el nivel ${nivel(umbralGrupo).adjetivo} (${nivel(umbralGrupo).riesgo.toLowerCase()}).`}
-            </T>
-          </View>
-        </Tarjeta>
-      ) : null}
+      <GruposSensibles grupoActivo={grupo?.id} />
 
-      <View style={{ alignSelf: 'stretch', marginTop: 20 }}>
-        <BotonPrincipal texto="Entendido, volver al resumen" alPresionar={m.marcarAvisoLeido} />
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <BotonPrincipal
+          texto="Entendido"
+          style={{ flex: 1 }}
+          alPresionar={async () => {
+            await m.marcarAvisoLeido();
+            volverAInicio();
+          }}
+        />
+        <BotonSecundario texto="Ver estación" style={{ flex: 1 }} alPresionar={volverAInicio} />
       </View>
-      <T t={9.5} c={Paleta.textoTenue} style={{ marginTop: 12, textAlign: 'center' }}>
+      <T t={10.5} c={fondo.tintaSuave} style={{ textAlign: 'center' }}>
         {pie}
       </T>
-    </View>
+    </>
   );
 }
 
-function IconoAviso({ color, fondo, resuelta }: { color: string; fondo: string; resuelta: boolean }) {
+/** Grupos sensibles de la NOM-172; el grupo marcado en Ajustes va resaltado. */
+function GruposSensibles({ grupoActivo }: { grupoActivo?: string }) {
+  const tema = useTema();
+  const e = useEstilos(crearEstilos);
   return (
-    <View style={[estilos.iconoAviso, { backgroundColor: fondo }]}>
-      <Icono nombre={resuelta ? 'check-circle-outline' : 'bell-outline'} tam={26} color={color} />
-      {!resuelta ? <View style={[estilos.puntoAviso, { backgroundColor: color }]} /> : null}
-    </View>
+    <Tarjeta>
+      <Etiqueta>Grupos sensibles</Etiqueta>
+      <View style={e.chips}>
+        {GRUPOS_VULNERABLES.map((g) => {
+          const activo = g.id === grupoActivo;
+          return (
+            <View key={g.id} style={[e.chip, activo && { backgroundColor: tema.chipActivoFondo }]}>
+              <T t={11} f="negrita" c={activo ? tema.chipActivoTexto : tema.texto}>
+                {g.nombre}
+              </T>
+            </View>
+          );
+        })}
+      </View>
+    </Tarjeta>
   );
 }
 
-function SinAvisos() {
+function SinAvisos({ fondo }: { fondo: TintaFondo }) {
   const m = useMonitor();
+  const tema = useTema();
+  const e = useEstilos(crearEstilos);
   return (
-    <View style={{ alignItems: 'center', paddingTop: 30 }}>
-      <IconoAviso color={Paleta.verde} fondo={Paleta.verdeSuave} resuelta />
-      <View style={{ marginTop: 12 }}>
-        <Etiqueta c={Paleta.textoSuave}>SIN AVISOS</Etiqueta>
+    <>
+      <BotonIcono icono="arrow-left" etiqueta="Volver a Inicio" alPresionar={volverAInicio} />
+      <View style={{ alignItems: 'center', paddingTop: 24, gap: 10 }}>
+        <View style={e.iconoAviso}>
+          <Icono nombre="check-circle-outline" tam={28} color={tema.accionTexto} />
+        </View>
+        <Etiqueta c={fondo.tinta} style={{ opacity: 0.78 }}>
+          Sin avisos
+        </Etiqueta>
+        <T t={28} f="display" c={fondo.tinta} accessibilityRole="header" style={{ letterSpacing: -0.8 }}>
+          Todo en orden
+        </T>
+        <T t={12.5} c={fondo.tintaSuave} style={{ textAlign: 'center', lineHeight: 18, paddingHorizontal: 12 }}>
+          {m.ajustes.alertasActivas
+            ? `No hay alertas de calidad del aire. Te avisaremos si el aire de ${m.dispositivo.nombre} empeora.`
+            : 'Las alertas están desactivadas. Actívalas en Inicio o en Ajustes para recibir avisos.'}
+        </T>
       </View>
-      <T t={23} f="extra" style={estilos.titulo}>
-        Todo en orden
-      </T>
-      <T t={11.5} c={Paleta.textoSuave} style={estilos.subtitulo}>
-        {m.ajustes.alertasActivas
-          ? `No hay alertas de calidad del aire. Te avisaremos si el aire de ${m.dispositivo.nombre} empeora.`
-          : 'Las alertas están desactivadas. Actívalas en el resumen para recibir avisos.'}
-      </T>
-      <View style={{ alignSelf: 'stretch', marginTop: 24 }}>
-        <BotonPrincipal texto="Volver al resumen" alPresionar={() => m.mostrarVista('resumen')} />
-      </View>
-    </View>
+      <BotonPrincipal texto="Volver a Inicio" alPresionar={volverAInicio} style={{ marginTop: 12 }} />
+    </>
   );
 }
 
-const estilos = StyleSheet.create({
-  contenido: { paddingHorizontal: 20, paddingTop: 26, paddingBottom: 32 },
-  titulo: { marginTop: 8, textAlign: 'center', letterSpacing: -0.3, lineHeight: 28 },
-  subtitulo: { marginTop: 8, textAlign: 'center', lineHeight: 17, paddingHorizontal: 16 },
-  tarjetaAlerta: { alignSelf: 'stretch', borderRadius: 18, borderWidth: 1, padding: 14, marginTop: 20 },
-  fila: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  exclamacion: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  dato: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10 },
-  salud: { alignSelf: 'stretch', flexDirection: 'row', gap: 10, marginTop: 12, padding: 14 },
-  iconoAviso: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  puntoAviso: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2.5,
-    borderColor: Paleta.fondo,
-  },
-});
+const crearEstilos = (p: PaletaTema) =>
+  StyleSheet.create({
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    chip: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 99, backgroundColor: p.superficie2 },
+    iconoAviso: {
+      width: 56,
+      height: 56,
+      borderRadius: 18,
+      backgroundColor: p.superficie,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+  });

@@ -1,28 +1,23 @@
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-  Manrope_800ExtraBold,
-  useFonts,
-} from '@expo-google-fonts/manrope';
+import { DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
+import { Sora_600SemiBold, Sora_700Bold, Sora_800ExtraBold } from '@expo-google-fonts/sora';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ProveedorToast } from '../componentes/comunes';
 import { ProveedorAdmin } from '../estado/admin';
-import { ContextoMonitor, Monitor } from '../estado/monitor';
-import { Paleta } from '../tema';
+import { ContextoMonitor, Monitor, useMonitor } from '../estado/monitor';
+import { ProveedorTema, useTema } from '../estado/tema';
 
 export default function Raiz() {
   const [fuentesListas, errorFuentes] = useFonts({
-    Manrope_400Regular,
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-    Manrope_700Bold,
-    Manrope_800ExtraBold,
+    Sora_600SemiBold,
+    Sora_700Bold,
+    Sora_800ExtraBold,
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
   });
   const [monitor] = useState(() => new Monitor());
 
@@ -36,12 +31,24 @@ export default function Raiz() {
     <SafeAreaProvider>
       <ProveedorAdmin>
         <ContextoMonitor.Provider value={monitor}>
-          <ProveedorToast>
-            <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Paleta.fondo } }} />
-          </ProveedorToast>
+          <TemaSegunAjustes>
+            <ProveedorToast>
+              <Navegacion />
+            </ProveedorToast>
+          </TemaSegunAjustes>
         </ContextoMonitor.Provider>
       </ProveedorAdmin>
     </SafeAreaProvider>
   );
+}
+
+/** Aplica el ajuste «Apariencia» (claro / oscuro / sistema). */
+function TemaSegunAjustes({ children }: { children: ReactNode }) {
+  const m = useMonitor();
+  return <ProveedorTema apariencia={m.ajustes.apariencia}>{children}</ProveedorTema>;
+}
+
+function Navegacion() {
+  const tema = useTema();
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: tema.fondoAzul } }} />;
 }
