@@ -36,6 +36,7 @@ build/
 *.secrets.json
 # Credenciales de Supabase del firmware (usar secretos.ejemplo.h como plantilla)
 firmware/**/secretos.h
+secretos.h
 
 # OS artifacts
 .DS_Store
