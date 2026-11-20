@@ -102,7 +102,7 @@ La aplicación integra perfiles normativos para proteger a los sectores más exp
 ## 🔒 Panel de Administración y Diagnóstico de Red
 
 Para evitar manipulaciones de usuarios comunes y garantizar un despliegue seguro en escuelas y colectivos:
-- **Acceso Exclusivo:** El panel está protegido por credenciales de administrador (cuenta root: `axelmtz9880@gmail.com`).
+- **Acceso Exclusivo:** Los usuarios comunes no ven el panel. Al final de **Ajustes** aparece «¿Eres administrador? Click aquí…», que pide correo y contraseña de administrador. Las contraseñas no se guardan: solo una sal y su hash (SHA-256 iterado). La del administrador principal se genera con `npm run hash-admin` (en `app/`) y se pega en `src/estado/admin.tsx`.
 - **Diagnóstico Integral de las 3 Capas:** Muestra en tiempo real el estado de salud del hardware ESP32 (sensores), el enlace con el Broker MQTT (HiveMQ) y el motor de alertas de la app.
 - **Gestión de Nodos y Estaciones:** Solo los administradores pueden dar de alta nuevas estaciones de medición comunitarias o retirar nodos defectuosos.
 - **Gestión de Roles:** Permite registrar nuevos directores de escuela o coordinadores de colectivo como administradores autorizados.
@@ -191,7 +191,7 @@ npm start
 
 ### 4. Demos con nodos reales
 
-La demostración del sistema se hace con nodos ESP32 físicos. Cada placa se flashea con un `NODO_ID` distinto y publica en `colectivo/aire/<NODO_ID>` cada 2 segundos. Después, en la app entra a **Ajustes → Panel de Administración**, agrega el tópico de cada nodo y usa **Activar** para cambiar la estación visualizada.
+La demostración del sistema se hace con nodos ESP32 físicos. Cada placa se flashea con un `NODO_ID` distinto y publica en `colectivo/aire/<NODO_ID>` cada 2 segundos. Después, en la app entra a **Ajustes → «¿Eres administrador? Click aquí»**, inicia sesión, agrega el tópico de cada nodo y usa **Activar** para cambiar la estación visualizada.
 
 La guía completa de demos está en [`docs/demos/GUIA_DEMOS.md`](docs/demos/GUIA_DEMOS.md).
 

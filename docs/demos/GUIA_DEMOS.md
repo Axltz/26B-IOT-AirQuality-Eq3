@@ -55,12 +55,12 @@ Con `secretos.h` configurado (ver README, sección 2), el nodo guarda una fila p
 
 ## 2. Sumar un nodo desde la app
 
-1. Abre **Ajustes → Panel de Administración** e inicia sesión.
+1. Abre **Ajustes**, toca **«¿Eres administrador? Click aquí»** al final e inicia sesión. Con la sesión activa, Ajustes muestra **Administración del sistema**.
 2. Toca **+ Agregar Nodo** y registra nombre, tópico (`colectivo/aire/nodo2`), broker (`broker.hivemq.com`), zona y coordenadas.
 3. Usa **Activar** en la tarjeta del nodo para suscribirte a él.
 4. Verifica que el dashboard muestre la telemetría del nodo seleccionado en unos segundos.
 
-El panel también permite editar, dar de baja nodos y registrar administradores.
+El panel también permite editar, dar de baja nodos y registrar administradores (cada uno con su propia contraseña).
 
 ---
 
