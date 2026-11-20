@@ -22,10 +22,11 @@ import {
 import { nivelGeneral } from '../../../componentes/datosAire';
 import { CabeceraVista } from '../../../componentes/Encabezado';
 import { Pantalla } from '../../../componentes/Pantalla';
-import { useAdmin } from '../../../estado/admin';
+import { ADMIN_ROOT_EMAIL, useAdmin } from '../../../estado/admin';
 import { useMonitor } from '../../../estado/monitor';
 import { sombra, useEstilos, useTema } from '../../../estado/tema';
 import { nivel } from '../../../logica/calidadAire';
+import { LARGO_MINIMO_CONTRASENA } from '../../../logica/credenciales';
 import type { Dispositivo } from '../../../modelos/ajustes';
 import { estadoMqtt, obtenerUltimaLecturaMqtt } from '../../../servicios/clienteMqtt';
 import { Fuente, fondoPastel, type PaletaTema } from '../../../tema';
@@ -48,13 +49,15 @@ export default function Administracion() {
   const m = useMonitor();
 
   // Login form
-  const [correo, setCorreo] = useState('axelmtz9880@gmail.com');
-  const [contrasena, setContrasena] = useState('admin123');
+  const [correo, setCorreo] = useState('');
+  const [contrasena, setContrasena] = useState('');
   const [cargandoLogin, setCargandoLogin] = useState(false);
 
   // Nuevo admin form
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevaContrasena, setNuevaContrasena] = useState('');
+  const [creandoAdmin, setCreandoAdmin] = useState(false);
   const [mostrandoCrearAdmin, setMostrandoCrearAdmin] = useState(false);
 
   // Formulario de estación (crear / editar)
@@ -110,6 +113,7 @@ export default function Administracion() {
     const res = await iniciarSesion(correo, contrasena);
     setCargandoLogin(false);
     if (res.ok) {
+      setContrasena('');
       toast('Sesión de administrador iniciada');
     } else {
       toast(res.error ?? 'Error al iniciar sesión');
@@ -117,11 +121,14 @@ export default function Administracion() {
   };
 
   const manejarCrearAdmin = async () => {
-    const res = await crearAdmin(nuevoCorreo, nuevoNombre);
+    setCreandoAdmin(true);
+    const res = await crearAdmin(nuevoCorreo, nuevoNombre, nuevaContrasena);
+    setCreandoAdmin(false);
     if (res.ok) {
       toast('Nuevo administrador agregado');
       setNuevoCorreo('');
       setNuevoNombre('');
+      setNuevaContrasena('');
       setMostrandoCrearAdmin(false);
     } else {
       toast(res.error ?? 'Error');
@@ -222,6 +229,7 @@ export default function Administracion() {
               alPresionar={async () => {
                 await cerrarSesion();
                 toast('Sesión cerrada');
+                router.navigate('/ajustes');
               }}
             />
           ) : null
@@ -248,6 +256,8 @@ export default function Administracion() {
             placeholder="ejemplo@correo.com"
             placeholderTextColor={tema.textoSuave}
             autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="off"
             keyboardType="email-address"
             style={ip()}
           />
@@ -258,6 +268,10 @@ export default function Administracion() {
             placeholder="Contraseña"
             placeholderTextColor={tema.textoSuave}
             secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="off"
+            onSubmitEditing={manejarLogin}
             style={ip()}
           />
           <BotonPrincipal
@@ -516,10 +530,28 @@ export default function Administracion() {
                 placeholder="correo@institucion.edu.mx"
                 placeholderTextColor={tema.textoSuave}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
                 style={ip()}
               />
-              <BotonPrincipal texto="Registrar administrador" alPresionar={manejarCrearAdmin} style={{ marginTop: 4 }} />
+              <TextInput
+                value={nuevaContrasena}
+                onChangeText={setNuevaContrasena}
+                placeholder={`Contraseña (mínimo ${LARGO_MINIMO_CONTRASENA} caracteres)`}
+                placeholderTextColor={tema.textoSuave}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                style={ip()}
+              />
+              <Ayuda>Compártela en persona: la app solo guarda una versión cifrada (hash) en este teléfono.</Ayuda>
+              <BotonPrincipal
+                texto={creandoAdmin ? 'Registrando…' : 'Registrar administrador'}
+                alPresionar={manejarCrearAdmin}
+                deshabilitado={creandoAdmin}
+                style={{ marginTop: 4 }}
+              />
             </Tarjeta>
           ) : null}
 
@@ -538,11 +570,11 @@ export default function Administracion() {
                     {adm.email}
                   </T>
                 </View>
-                {adm.email !== 'axelmtz9880@gmail.com' ? (
+                {adm.email !== ADMIN_ROOT_EMAIL ? (
                   <Pressable
-                    onPress={() => {
-                      void eliminarAdmin(adm.email);
-                      toast('Administrador removido');
+                    onPress={async () => {
+                      const res = await eliminarAdmin(adm.email);
+                      toast(res.ok ? 'Administrador removido' : (res.error ?? 'Error'));
                     }}
                     style={{ padding: 6 }}
                     accessibilityRole="button"
