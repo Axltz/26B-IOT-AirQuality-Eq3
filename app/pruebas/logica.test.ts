@@ -1,9 +1,11 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
 
 import { ESPERA_MEJORA_MS, evaluarAlerta, textoNotificacion, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
 import { evaluarAire } from '../src/logica/calidadAire';
+import { derivarHash, generarSal, sha256, verificarContrasena } from '../src/logica/credenciales';
 import { sensacionTermica } from '../src/logica/confort';
 import { promediosMovilesHoras, puntosPorMinuto, puntosUltimasHoras } from '../src/logica/historial';
 import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../src/logica/gruposVulnerables';
@@ -400,5 +402,23 @@ describe('Histórico en Supabase', () => {
     assert.ok(url.includes('creado_en=gt.2026-11-18T19%3A00%3A00.000Z'));
     assert.ok(url.includes('order=creado_en.asc'));
     assert.ok(url.includes('limit=1000&offset=1000'));
+  });
+});
+
+describe('Credenciales de administrador', () => {
+  test('sha256 coincide con node:crypto (vacío, UTF-8 y varios bloques)', () => {
+    for (const texto of ['', 'abc', 'contraseña ñ 😀', 'a'.repeat(55), 'a'.repeat(56), 'x'.repeat(200)]) {
+      assert.equal(sha256(texto), createHash('sha256').update(texto, 'utf8').digest('hex'));
+    }
+  });
+
+  test('verificarContrasena acepta la correcta y rechaza otra contraseña u otra sal', () => {
+    const sal = generarSal();
+    const hash = derivarHash('Secreta#2026', sal);
+    assert.match(sal, /^[0-9a-f]{32}$/);
+    assert.equal(verificarContrasena('Secreta#2026', sal, hash), true);
+    assert.equal(verificarContrasena('secreta#2026', sal, hash), false);
+    assert.equal(verificarContrasena('Secreta#2026', generarSal(), hash), false);
+    assert.equal(verificarContrasena('Secreta#2026', '', ''), false);
   });
 });
