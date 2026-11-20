@@ -150,7 +150,9 @@ export function sondearNodos(
         cliente = mqtt.connect(url, {
           clientId: `AURA172_Sondeo_${Math.random().toString(16).slice(2, 10)}`,
           clean: true,
-          connectTimeout: Math.min(2500, esperaMs),
+          // El broker público a veces tarda varios segundos en aceptar la conexión;
+          // el temporizador global ya decide cuándo dejar de esperar.
+          connectTimeout: esperaMs,
           reconnectPeriod: 0,
         });
       } catch {
