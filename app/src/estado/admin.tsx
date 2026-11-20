@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { derivarHash, generarSal, LARGO_MINIMO_CONTRASENA, verificarContrasena } from '../logica/credenciales';
+import { nuevaCredencial, verificarContrasena } from '../logica/credenciales';
 
 /** Datos visibles de un administrador (sin credenciales). */
 export interface Admin {
@@ -26,12 +26,15 @@ interface ContextoAdminTipo {
   cerrarSesion: () => Promise<void>;
   crearAdmin: (correo: string, nombre: string, contrasena: string) => Promise<Resultado>;
   eliminarAdmin: (correo: string) => Promise<Resultado>;
+  cambiarContrasena: (actual: string, nueva: string) => Promise<Resultado>;
 }
 
 // v2: las versiones v1 guardaban admins sin contraseña propia y sesiones
 // abiertas con el formulario prellenado; se descartan a propósito.
 const CLAVE_SESION_ADMIN = 'mientorno.admin.sesion.v2';
 const CLAVE_LISTA_ADMINS = 'mientorno.admin.lista.v2';
+/** Contraseña del principal cambiada desde este teléfono (tiene prioridad sobre la del código). */
+const CLAVE_ROOT_LOCAL = 'mientorno.admin.root.v2';
 
 /**
  * Administrador principal. La sal y el hash se generan con
@@ -63,10 +66,17 @@ const esAdminGuardado = (x: unknown): x is AdminGuardado =>
   typeof (x as AdminGuardado).sal === 'string' &&
   typeof (x as AdminGuardado).hash === 'string';
 
-/** El principal siempre existe y siempre usa las credenciales del código. */
-const conRoot = (lista: AdminGuardado[]): AdminGuardado[] => [
-  ADMIN_ROOT,
-  ...lista.filter((a) => a.email.toLowerCase() !== ADMIN_ROOT_EMAIL),
+const esRoot = (a: { email: string }) => a.email.toLowerCase() === ADMIN_ROOT_EMAIL;
+
+type Credencial = Pick<AdminGuardado, 'sal' | 'hash'>;
+
+/**
+ * El principal siempre existe. Usa la contraseña cambiada en este teléfono si
+ * la hay; si no (o si se reinstala la app), la del código.
+ */
+const conRoot = (lista: AdminGuardado[], rootLocal: Credencial | null): AdminGuardado[] => [
+  rootLocal ? { ...ADMIN_ROOT, ...rootLocal } : ADMIN_ROOT,
+  ...lista.filter((a) => !esRoot(a)),
 ];
 
 const ContextoAdmin = createContext<ContextoAdminTipo>({
@@ -77,6 +87,7 @@ const ContextoAdmin = createContext<ContextoAdminTipo>({
   cerrarSesion: async () => {},
   crearAdmin: async () => ({ ok: false }),
   eliminarAdmin: async () => ({ ok: false }),
+  cambiarContrasena: async () => ({ ok: false }),
 });
 
 export function ProveedorAdmin({ children }: { children: ReactNode }) {
@@ -87,12 +98,21 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        let lista: AdminGuardado[] = [ADMIN_ROOT];
+        let guardados: AdminGuardado[] = [];
         const rawLista = await AsyncStorage.getItem(CLAVE_LISTA_ADMINS);
         if (rawLista) {
           const parsed: unknown = JSON.parse(rawLista);
-          if (Array.isArray(parsed)) lista = conRoot(parsed.filter(esAdminGuardado));
+          if (Array.isArray(parsed)) guardados = parsed.filter(esAdminGuardado);
         }
+        let rootLocal: Credencial | null = null;
+        const rawRoot = await AsyncStorage.getItem(CLAVE_ROOT_LOCAL);
+        if (rawRoot) {
+          const parsed = JSON.parse(rawRoot);
+          if (typeof parsed?.sal === 'string' && typeof parsed?.hash === 'string' && parsed.sal && parsed.hash) {
+            rootLocal = { sal: parsed.sal, hash: parsed.hash };
+          }
+        }
+        const lista = conRoot(guardados, rootLocal);
         setAdmins(lista);
 
         // La sesión solo vale si ese correo sigue siendo administrador.
@@ -111,8 +131,24 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
 
   const guardarLista = async (lista: AdminGuardado[]) => {
     setAdmins(lista);
-    // El principal no se guarda: sus credenciales vienen del código.
-    await AsyncStorage.setItem(CLAVE_LISTA_ADMINS, JSON.stringify(lista.filter((a) => a !== ADMIN_ROOT)));
+    // El principal no va en la lista: su contraseña local tiene su propia clave.
+    await AsyncStorage.setItem(CLAVE_LISTA_ADMINS, JSON.stringify(lista.filter((a) => !esRoot(a))));
+  };
+
+  /** Error si hay bloqueo por intentos fallidos; null si se puede intentar. */
+  const revisarBloqueo = (): Resultado | null => {
+    const restante = fallos.current.bloqueadoHasta - Date.now();
+    return restante > 0 ? { ok: false, error: `Demasiados intentos. Espera ${Math.ceil(restante / 1000)} s` } : null;
+  };
+
+  /** Cuenta un intento fallido (login o contraseña actual) y bloquea al llegar al máximo. */
+  const registrarFallo = (error: string): Resultado => {
+    fallos.current.seguidos += 1;
+    if (fallos.current.seguidos >= MAX_INTENTOS) {
+      fallos.current = { seguidos: 0, bloqueadoHasta: Date.now() + BLOQUEO_MS };
+      return { ok: false, error: `Demasiados intentos. Espera ${BLOQUEO_MS / 1000} s` };
+    }
+    return { ok: false, error };
   };
 
   const iniciarSesion = async (correo: string, contrasena: string): Promise<Resultado> => {
@@ -121,10 +157,8 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
 
     if (!c || !p) return { ok: false, error: 'Ingresa correo y contraseña' };
 
-    const restante = fallos.current.bloqueadoHasta - Date.now();
-    if (restante > 0) {
-      return { ok: false, error: `Demasiados intentos. Espera ${Math.ceil(restante / 1000)} s` };
-    }
+    const bloqueo = revisarBloqueo();
+    if (bloqueo) return bloqueo;
 
     // Deja que la interfaz pinte "Verificando…" antes de calcular el hash.
     await new Promise((r) => setTimeout(r, 0));
@@ -133,14 +167,7 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
     // Se calcula el hash aunque el correo no exista, para no delatar por el tiempo de respuesta.
     const valida = verificarContrasena(p, encontrado?.sal ?? 'sin-admin', encontrado?.hash ?? '0'.repeat(64));
 
-    if (!encontrado || !valida) {
-      fallos.current.seguidos += 1;
-      if (fallos.current.seguidos >= MAX_INTENTOS) {
-        fallos.current = { seguidos: 0, bloqueadoHasta: Date.now() + BLOQUEO_MS };
-        return { ok: false, error: `Demasiados intentos. Espera ${BLOQUEO_MS / 1000} s` };
-      }
-      return { ok: false, error: 'Correo o contraseña incorrectos' };
-    }
+    if (!encontrado || !valida) return registrarFallo('Correo o contraseña incorrectos');
 
     fallos.current = { seguidos: 0, bloqueadoHasta: 0 };
     const admin = sinCredenciales(encontrado);
@@ -160,28 +187,53 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
     const n = nombre.trim();
     if (!c || !n || !contrasena) return { ok: false, error: 'Completa todos los campos' };
     if (!c.includes('@') || !c.includes('.')) return { ok: false, error: 'Correo inválido' };
-    if (contrasena.length < LARGO_MINIMO_CONTRASENA) {
-      return { ok: false, error: `La contraseña debe tener al menos ${LARGO_MINIMO_CONTRASENA} caracteres` };
-    }
     if (admins.some((a) => a.email.toLowerCase() === c)) {
       return { ok: false, error: 'Este correo ya es administrador' };
     }
 
     await new Promise((r) => setTimeout(r, 0));
-    const sal = generarSal();
-    await guardarLista([...admins, { email: c, nombre: n, creadoEn: Date.now(), sal, hash: derivarHash(contrasena, sal) }]);
+    const credencial = nuevaCredencial(contrasena);
+    if ('error' in credencial) return { ok: false, error: credencial.error };
+    await guardarLista([...admins, { email: c, nombre: n, creadoEn: Date.now(), ...credencial }]);
     return { ok: true };
   };
 
   const eliminarAdmin = async (correo: string): Promise<Resultado> => {
     if (!adminActual) return { ok: false, error: 'Inicia sesión como administrador' };
     const c = correo.trim().toLowerCase();
-    if (c === ADMIN_ROOT_EMAIL) {
+    if (esRoot({ email: c })) {
       return { ok: false, error: 'No se puede eliminar al administrador principal' };
     }
     await guardarLista(admins.filter((a) => a.email.toLowerCase() !== c));
     // Si se quitó a sí mismo, su sesión termina.
     if (adminActual.email.toLowerCase() === c) await cerrarSesion();
+    return { ok: true };
+  };
+
+  const cambiarContrasena = async (actual: string, nueva: string): Promise<Resultado> => {
+    if (!adminActual) return { ok: false, error: 'Inicia sesión como administrador' };
+    if (!actual || !nueva) return { ok: false, error: 'Completa todos los campos' };
+    const bloqueo = revisarBloqueo();
+    if (bloqueo) return bloqueo;
+
+    await new Promise((r) => setTimeout(r, 0));
+    const yo = admins.find((a) => a.email === adminActual.email);
+    if (!yo || !verificarContrasena(actual, yo.sal, yo.hash)) {
+      return registrarFallo('La contraseña actual no es correcta');
+    }
+    fallos.current = { seguidos: 0, bloqueadoHasta: 0 };
+    if (nueva === actual) return { ok: false, error: 'La nueva contraseña debe ser distinta de la actual' };
+
+    const credencial = nuevaCredencial(nueva);
+    if ('error' in credencial) return { ok: false, error: credencial.error };
+
+    const lista = admins.map((a) => (a.email === yo.email ? { ...a, ...credencial } : a));
+    if (esRoot(yo)) {
+      setAdmins(lista);
+      await AsyncStorage.setItem(CLAVE_ROOT_LOCAL, JSON.stringify(credencial));
+    } else {
+      await guardarLista(lista);
+    }
     return { ok: true };
   };
 
@@ -195,6 +247,7 @@ export function ProveedorAdmin({ children }: { children: ReactNode }) {
         cerrarSesion,
         crearAdmin,
         eliminarAdmin,
+        cambiarContrasena,
       }}
     >
       {children}

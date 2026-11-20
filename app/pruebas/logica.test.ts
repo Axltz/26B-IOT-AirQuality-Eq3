@@ -5,7 +5,8 @@ import { describe, test } from 'node:test';
 
 import { ESPERA_MEJORA_MS, evaluarAlerta, textoNotificacion, type EstadoAlerta, type Evaluacion } from '../src/logica/alertas';
 import { evaluarAire } from '../src/logica/calidadAire';
-import { derivarHash, generarSal, sha256, verificarContrasena } from '../src/logica/credenciales';
+import { derivarHash, generarSal, nuevaCredencial, sha256, verificarContrasena } from '../src/logica/credenciales';
+import { resumirLectura } from '../src/logica/diagnostico';
 import { sensacionTermica } from '../src/logica/confort';
 import { promediosMovilesHoras, puntosPorMinuto, puntosUltimasHoras } from '../src/logica/historial';
 import { grupoPorId, recomendacionDeGrupo, umbralEfectivo } from '../src/logica/gruposVulnerables';
@@ -420,5 +421,28 @@ describe('Credenciales de administrador', () => {
     assert.equal(verificarContrasena('secreta#2026', sal, hash), false);
     assert.equal(verificarContrasena('Secreta#2026', generarSal(), hash), false);
     assert.equal(verificarContrasena('Secreta#2026', '', ''), false);
+  });
+
+  test('nuevaCredencial rechaza contraseñas cortas y genera una verificable', () => {
+    assert.deepEqual(nuevaCredencial('corta'), { error: 'La contraseña debe tener al menos 8 caracteres' });
+    const c = nuevaCredencial('NuevaClave2026');
+    assert.ok(!('error' in c));
+    assert.equal(verificarContrasena('NuevaClave2026', c.sal, c.hash), true);
+    assert.equal(verificarContrasena('OtraClave2026', c.sal, c.hash), false);
+    // Cada credencial lleva su propia sal: la misma contraseña da otro hash.
+    const otra = nuevaCredencial('NuevaClave2026');
+    assert.ok(!('error' in otra));
+    assert.notEqual(otra.hash, c.hash);
+  });
+});
+
+describe('Diagnóstico del panel de administración', () => {
+  test('resumirLectura muestra solo los valores presentes', () => {
+    assert.equal(
+      resumirLectura({ fecha: ahora, pm25: 12, co: 0.84, temperatura: 24, humedad: 40.25 }),
+      'PM2.5 12 µg/m³ · CO 0.8 ppm · 24 °C · 40.3 % HR',
+    );
+    assert.equal(resumirLectura({ fecha: ahora, pm10: 30 }), 'PM10 30 µg/m³');
+    assert.equal(resumirLectura({ fecha: ahora }), 'Lectura sin valores conocidos');
   });
 });

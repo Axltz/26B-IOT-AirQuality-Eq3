@@ -650,8 +650,42 @@ export class Monitor {
     this.avisarCambios();
   };
 
-  /** Para el botón "Probar conexión". */
-  probarConexion = (direccion: string) => leerEsp32(normalizarDireccion(direccion));
+  /**
+   * Vacía el historial guardado de la estación activa y lo vuelve a pedir
+   * completo (últimas 26 h) a Supabase o al ESP32. Útil si la gráfica quedó
+   * con huecos o datos de pruebas.
+   */
+  recargarHistorial = async () => {
+    const d = this.dispositivo;
+    this.nubeHasta.delete(d.id);
+    this.historialPendiente = false;
+    await this.borrarHistorial();
+    if (d.demo) return;
+    await this.traerHistorialNube(d);
+    if (d.direccion && !esBrokerMqtt(d.direccion)) {
+      await this.traerHistorialEsp32(d, normalizarDireccion(d.direccion));
+      this.avisarCambios();
+    }
+    // Lo descargado se guarda de inmediato (fusionar lo marca como pendiente).
+    await this.guardarHistorial();
+  };
+
+  /**
+   * Para el botón "Probar conexión" del panel: espera una lectura del nodo.
+   * Con broker MQTT escucha el tópico con un cliente temporal (no toca la
+   * estación activa); con IP local consulta /api/lecturas por HTTP.
+   */
+  probarConexion = async (direccion: string, topico: string, esperaMs = 12_000): Promise<Lectura> => {
+    if (!esBrokerMqtt(direccion)) return leerEsp32(normalizarDireccion(direccion));
+    const lecturas = await sondearNodos([{ url: urlBrokerMqtt(direccion), topico }], esperaMs);
+    const l = lecturas[topico];
+    if (!l) {
+      throw new Error(
+        `No llegó ningún dato en ${topico} en ${Math.round(esperaMs / 1000)} s. ¿El ESP32 está encendido y su NODO_ID coincide?`,
+      );
+    }
+    return l;
+  };
 
   // -------------------------------------------------------------------- push
 

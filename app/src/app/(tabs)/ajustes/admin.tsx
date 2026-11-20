@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import {
@@ -27,8 +27,11 @@ import { useMonitor } from '../../../estado/monitor';
 import { sombra, useEstilos, useTema } from '../../../estado/tema';
 import { nivel } from '../../../logica/calidadAire';
 import { LARGO_MINIMO_CONTRASENA } from '../../../logica/credenciales';
+import { resumirLectura } from '../../../logica/diagnostico';
 import type { Dispositivo } from '../../../modelos/ajustes';
+import { describirError } from '../../../servicios/clienteEsp32';
 import { estadoMqtt, obtenerUltimaLecturaMqtt } from '../../../servicios/clienteMqtt';
+import { historialNubeConfigurado } from '../../../servicios/historialNube';
 import { Fuente, fondoPastel, type PaletaTema } from '../../../tema';
 
 const BROKER_DEFECTO = 'broker.hivemq.com';
@@ -45,7 +48,8 @@ export default function Administracion() {
   const e = useEstilos(crearEstilos);
   const fondo = fondoPastel(tema, 'azul');
   const toast = useToast();
-  const { esAdmin, adminActual, admins, iniciarSesion, cerrarSesion, crearAdmin, eliminarAdmin } = useAdmin();
+  const { esAdmin, adminActual, admins, iniciarSesion, cerrarSesion, crearAdmin, eliminarAdmin, cambiarContrasena } =
+    useAdmin();
   const m = useMonitor();
 
   // Login form
@@ -70,6 +74,26 @@ export default function Administracion() {
   const [lngNodo, setLngNodo] = useState('');
   const [brokerNodo, setBrokerNodo] = useState(BROKER_DEFECTO);
   const [guardandoNodo, setGuardandoNodo] = useState(false);
+  // Resultado de "Probar conexión" (se borra al cambiar tópico o broker)
+  const [prueba, setPrueba] = useState<{ estado: 'probando' | 'ok' | 'error'; texto: string } | null>(null);
+
+  // Cambio de contraseña del admin con sesión
+  const [mostrandoCambioContrasena, setMostrandoCambioContrasena] = useState(false);
+  const [contrasenaActual, setContrasenaActual] = useState('');
+  const [contrasenaNueva, setContrasenaNueva] = useState('');
+  const [contrasenaConfirmacion, setContrasenaConfirmacion] = useState('');
+  const [cambiandoContrasena, setCambiandoContrasena] = useState(false);
+
+  // Mantenimiento: "Volver a descargar historial" pide un segundo toque
+  const [confirmandoRecarga, setConfirmandoRecarga] = useState(false);
+  const [recargando, setRecargando] = useState(false);
+  const relojConfirmacion = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (relojConfirmacion.current) clearTimeout(relojConfirmacion.current);
+    },
+    [],
+  );
 
   const limpiarFormularioNodo = () => {
     setNodoEditandoId(null);
@@ -79,6 +103,7 @@ export default function Administracion() {
     setLatNodo('');
     setLngNodo('');
     setBrokerNodo(BROKER_DEFECTO);
+    setPrueba(null);
     setMostrandoFormularioNodo(false);
   };
 
@@ -94,6 +119,7 @@ export default function Administracion() {
     setLatNodo('');
     setLngNodo('');
     setBrokerNodo(BROKER_DEFECTO);
+    setPrueba(null);
     setMostrandoFormularioNodo(true);
   };
 
@@ -105,6 +131,7 @@ export default function Administracion() {
     setLatNodo(d.lat !== undefined ? String(d.lat) : '');
     setLngNodo(d.lng !== undefined ? String(d.lng) : '');
     setBrokerNodo(d.direccion || BROKER_DEFECTO);
+    setPrueba(null);
     setMostrandoFormularioNodo(true);
   };
 
@@ -135,37 +162,61 @@ export default function Administracion() {
     }
   };
 
-  const manejarGuardarNodo = async () => {
-    const nombre = nombreNodo.trim();
+  /** Tópico y broker del formulario; avisa y devuelve null si el tópico no es válido. */
+  const validarConexionNodo = (): { topico: string; broker: string } | null => {
     const topico = topicoNodo.trim();
     const broker = brokerNodo.trim() || BROKER_DEFECTO;
-
-    if (!nombre) {
-      toast('Ingresa un nombre para la estación (ej. Estación X)');
-      return;
-    }
     if (!topico.startsWith(PREFIJO_TOPICO) || topico === PREFIJO_TOPICO) {
       toast('El tópico debe tener el formato colectivo/aire/nodoX');
-      return;
+      return null;
     }
-    const duplicado = m.ajustes.dispositivos.some(
-      (d) => d.topicoMqtt === topico && d.id !== nodoEditandoId,
-    );
+    return { topico, broker };
+  };
+
+  /** Todo el formulario de estación; avisa y devuelve null en el primer error. */
+  const validarNodo = () => {
+    const nombre = nombreNodo.trim();
+    if (!nombre) {
+      toast('Ingresa un nombre para la estación (ej. Estación X)');
+      return null;
+    }
+    const conexion = validarConexionNodo();
+    if (!conexion) return null;
+    const duplicado = m.ajustes.dispositivos.some((d) => d.topicoMqtt === conexion.topico && d.id !== nodoEditandoId);
     if (duplicado) {
       toast('Ya existe una estación con ese tópico MQTT');
-      return;
+      return null;
     }
 
     const latNum = latNodo.trim() ? parseFloat(latNodo) : undefined;
     const lngNum = lngNodo.trim() ? parseFloat(lngNodo) : undefined;
     if (latNum !== undefined && (isNaN(latNum) || latNum < -90 || latNum > 90)) {
       toast('La latitud debe estar entre -90 y 90');
-      return;
+      return null;
     }
     if (lngNum !== undefined && (isNaN(lngNum) || lngNum < -180 || lngNum > 180)) {
       toast('La longitud debe estar entre -180 y 180');
-      return;
+      return null;
     }
+    return { nombre, ...conexion, latNum, lngNum };
+  };
+
+  const manejarProbarNodo = async () => {
+    const conexion = validarConexionNodo();
+    if (!conexion) return;
+    setPrueba({ estado: 'probando', texto: `Escuchando ${conexion.topico}…` });
+    try {
+      const l = await m.probarConexion(conexion.broker, conexion.topico);
+      setPrueba({ estado: 'ok', texto: `Recibido: ${resumirLectura(l)}` });
+    } catch (err) {
+      setPrueba({ estado: 'error', texto: err instanceof Error ? err.message : describirError(err) });
+    }
+  };
+
+  const manejarGuardarNodo = async () => {
+    const datos = validarNodo();
+    if (!datos) return;
+    const { nombre, topico, broker, latNum, lngNum } = datos;
 
     setGuardandoNodo(true);
     try {
@@ -186,6 +237,49 @@ export default function Administracion() {
       limpiarFormularioNodo();
     } finally {
       setGuardandoNodo(false);
+    }
+  };
+
+  const cerrarCambioContrasena = () => {
+    setContrasenaActual('');
+    setContrasenaNueva('');
+    setContrasenaConfirmacion('');
+    setMostrandoCambioContrasena(false);
+  };
+
+  const manejarCambiarContrasena = async () => {
+    if (contrasenaNueva !== contrasenaConfirmacion) {
+      toast('La nueva contraseña y su confirmación no coinciden');
+      return;
+    }
+    setCambiandoContrasena(true);
+    const res = await cambiarContrasena(contrasenaActual, contrasenaNueva);
+    setCambiandoContrasena(false);
+    if (res.ok) {
+      toast('Contraseña actualizada');
+      cerrarCambioContrasena();
+    } else {
+      toast(res.error ?? 'No se pudo cambiar la contraseña');
+    }
+  };
+
+  const manejarRecargarHistorial = async () => {
+    if (!confirmandoRecarga) {
+      setConfirmandoRecarga(true);
+      if (relojConfirmacion.current) clearTimeout(relojConfirmacion.current);
+      relojConfirmacion.current = setTimeout(() => setConfirmandoRecarga(false), 4000);
+      return;
+    }
+    if (relojConfirmacion.current) clearTimeout(relojConfirmacion.current);
+    setConfirmandoRecarga(false);
+    setRecargando(true);
+    try {
+      await m.recargarHistorial();
+      toast(`Historial de "${m.dispositivo.nombre}" descargado de nuevo`);
+    } catch {
+      toast('No se pudo volver a descargar el historial');
+    } finally {
+      setRecargando(false);
     }
   };
 
@@ -211,6 +305,7 @@ export default function Administracion() {
     : 'Sin datos';
 
   const ip = () => e.input;
+  const nubeConfigurada = historialNubeConfigurado();
   const nivelActivo = nivelGeneral(m);
 
   return (
@@ -300,6 +395,76 @@ export default function Administracion() {
             </View>
             <Pastilla texto="Sesión activa" color={tema.accionTexto} fondo={tema.superficie} />
           </Tarjeta>
+          <Pressable
+            onPress={() => (mostrandoCambioContrasena ? cerrarCambioContrasena() : setMostrandoCambioContrasena(true))}
+            accessibilityRole="button"
+            hitSlop={6}
+            style={{ alignSelf: 'flex-end', paddingHorizontal: 4 }}
+          >
+            <T t={12} f="negrita" c={fondo.tinta}>
+              {mostrandoCambioContrasena ? 'Cancelar' : 'Cambiar contraseña'}
+            </T>
+          </Pressable>
+
+          {mostrandoCambioContrasena ? (
+            <Tarjeta style={{ gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <ChipIcono nombre="key-outline" color={tema.accionTexto} fondo={tema.accionSuave} tam={30} tamIcono={16} />
+                <T t={12.5} f="negrita" style={{ flex: 1 }}>
+                  Cambiar mi contraseña
+                </T>
+              </View>
+              <Rotulo arriba={10}>Contraseña actual</Rotulo>
+              <TextInput
+                value={contrasenaActual}
+                onChangeText={setContrasenaActual}
+                placeholder="Contraseña actual"
+                placeholderTextColor={tema.textoSuave}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                style={ip()}
+              />
+              <Rotulo arriba={10}>Nueva contraseña</Rotulo>
+              <TextInput
+                value={contrasenaNueva}
+                onChangeText={setContrasenaNueva}
+                placeholder={`Mínimo ${LARGO_MINIMO_CONTRASENA} caracteres`}
+                placeholderTextColor={tema.textoSuave}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                style={ip()}
+              />
+              <Rotulo arriba={10}>Confirmar nueva contraseña</Rotulo>
+              <TextInput
+                value={contrasenaConfirmacion}
+                onChangeText={setContrasenaConfirmacion}
+                placeholder="Repite la nueva contraseña"
+                placeholderTextColor={tema.textoSuave}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                onSubmitEditing={manejarCambiarContrasena}
+                style={ip()}
+              />
+              {adminActual?.email === ADMIN_ROOT_EMAIL ? (
+                <Ayuda>
+                  Como administrador principal, la nueva contraseña vale en este teléfono. Si se reinstala la app vuelve a
+                  valer la original.
+                </Ayuda>
+              ) : null}
+              <BotonPrincipal
+                texto={cambiandoContrasena ? 'Guardando…' : 'Guardar contraseña'}
+                alPresionar={manejarCambiarContrasena}
+                deshabilitado={cambiandoContrasena}
+                style={{ marginTop: 12 }}
+              />
+            </Tarjeta>
+          ) : null}
 
           {/* Resumen rápido de la red */}
           <Etiqueta c={fondo.tintaSuave} style={e.seccion}>
@@ -385,7 +550,10 @@ export default function Administracion() {
               <Rotulo arriba={10}>Tópico MQTT *</Rotulo>
               <TextInput
                 value={topicoNodo}
-                onChangeText={setTopicoNodo}
+                onChangeText={(v) => {
+                  setTopicoNodo(v);
+                  setPrueba(null);
+                }}
                 placeholder={`${PREFIJO_TOPICO}nodo2`}
                 placeholderTextColor={tema.textoSuave}
                 autoCapitalize="none"
@@ -400,7 +568,10 @@ export default function Administracion() {
               <Rotulo arriba={10}>Broker MQTT (host o URL WSS)</Rotulo>
               <TextInput
                 value={brokerNodo}
-                onChangeText={setBrokerNodo}
+                onChangeText={(v) => {
+                  setBrokerNodo(v);
+                  setPrueba(null);
+                }}
                 placeholder={BROKER_DEFECTO}
                 placeholderTextColor={tema.textoSuave}
                 autoCapitalize="none"
@@ -420,6 +591,32 @@ export default function Administracion() {
                 </View>
               </View>
               <Ayuda>Coordenadas necesarias para el modo "Estación más cercana" por GPS.</Ayuda>
+
+              <BotonSecundario
+                enTarjeta
+                texto={prueba?.estado === 'probando' ? 'Probando…' : 'Probar conexión'}
+                icono="lan-connect"
+                alPresionar={() => void manejarProbarNodo()}
+                deshabilitado={prueba?.estado === 'probando'}
+                style={{ marginTop: 12 }}
+              />
+              {prueba ? (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 }}>
+                  <Icono
+                    nombre={prueba.estado === 'ok' ? 'check-circle-outline' : prueba.estado === 'error' ? 'alert-circle-outline' : 'timer-sand'}
+                    tam={15}
+                    color={prueba.estado === 'ok' ? tema.sistemaTexto : prueba.estado === 'error' ? tema.peligro : tema.textoSuave}
+                  />
+                  <T
+                    t={11}
+                    c={prueba.estado === 'ok' ? tema.sistemaTexto : prueba.estado === 'error' ? tema.peligro : tema.textoSuave}
+                    style={{ flex: 1, lineHeight: 15 }}
+                  >
+                    {prueba.texto}
+                  </T>
+                </View>
+              ) : null}
+              <Ayuda>Opcional: puedes guardar el nodo aunque todavía no esté encendido.</Ayuda>
 
               <BotonPrincipal
                 texto={guardandoNodo ? 'Guardando…' : nodoEditandoId ? 'Guardar cambios' : 'Guardar nodo'}
@@ -585,6 +782,52 @@ export default function Administracion() {
                 ) : null}
               </View>
             ))}
+          </Tarjeta>
+
+          {/* 4. Mantenimiento */}
+          <Etiqueta c={fondo.tintaSuave} style={e.seccion}>
+            Mantenimiento
+          </Etiqueta>
+          <Tarjeta style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <ChipIcono
+                nombre={nubeConfigurada ? 'cloud-check-outline' : 'cloud-off-outline'}
+                color={nubeConfigurada ? tema.sistemaTexto : tema.textoSuave}
+                fondo={nubeConfigurada ? tema.sistemaSuave : tema.superficie2}
+              />
+              <View style={{ flex: 1 }}>
+                <T t={12.5} f="negrita">
+                  Historial en la nube
+                </T>
+                <T t={11} c={tema.textoSuave} style={{ marginTop: 2, lineHeight: 15 }}>
+                  {nubeConfigurada
+                    ? 'Configurado (Supabase): la gráfica recupera lo que el ESP32 subió con la app cerrada.'
+                    : 'Sin configurar: faltan EXPO_PUBLIC_SUPABASE_URL y la clave publicable.'}
+                </T>
+              </View>
+            </View>
+            <Separador />
+            <T t={11} c={tema.textoSuave} style={{ lineHeight: 15 }}>
+              {nubeConfigurada
+                ? `Vacía la gráfica de "${m.dispositivo.nombre}" y vuelve a descargar sus últimas 26 h. Útil si quedó con huecos o datos de pruebas.`
+                : `Vacía la gráfica de "${m.dispositivo.nombre}". Sin la nube empezará vacía y se llenará con las lecturas nuevas.`}
+            </T>
+            <BotonSecundario
+              enTarjeta
+              texto={
+                recargando
+                  ? 'Descargando…'
+                  : confirmandoRecarga
+                    ? 'Toca de nuevo para confirmar'
+                    : nubeConfigurada
+                      ? 'Volver a descargar historial'
+                      : 'Vaciar historial'
+              }
+              icono="history"
+              color={confirmandoRecarga ? tema.peligro : tema.texto}
+              alPresionar={() => void manejarRecargarHistorial()}
+              deshabilitado={recargando}
+            />
           </Tarjeta>
         </>
       )}

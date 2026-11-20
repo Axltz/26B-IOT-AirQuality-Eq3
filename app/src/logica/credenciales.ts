@@ -117,3 +117,12 @@ export function verificarContrasena(contrasena: string, sal: string, hash: strin
 
 /** Longitud mínima para contraseñas de administrador nuevas. */
 export const LARGO_MINIMO_CONTRASENA = 8;
+
+/** Sal y hash nuevos para una contraseña, o el motivo por el que no es válida. */
+export function nuevaCredencial(contrasena: string): { sal: string; hash: string } | { error: string } {
+  if (contrasena.length < LARGO_MINIMO_CONTRASENA) {
+    return { error: `La contraseña debe tener al menos ${LARGO_MINIMO_CONTRASENA} caracteres` };
+  }
+  const sal = generarSal();
+  return { sal, hash: derivarHash(contrasena, sal) };
+}
