@@ -41,6 +41,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test pruebas/logica.test.ts",
     "iniciar-sesion": "node herramientas/iniciar-sesion-expo.mjs",
+    "hash-admin": "tsx herramientas/hash-admin.mts",
     "build:android": "npx eas-cli build --platform android --profile preview",
     "build:android:dev": "npx eas-cli build --platform android --profile development"
   },

@@ -10,6 +10,7 @@ import {
   Separador,
   T,
   Tarjeta,
+  useToast,
   type NombreIcono,
 } from '../../../componentes/comunes';
 import { CabeceraVista } from '../../../componentes/Encabezado';
@@ -25,7 +26,8 @@ import { fondoPastel, type PaletaTema } from '../../../tema';
 export default function Ajustes() {
   const m = useMonitor();
   const tema = useTema();
-  const { esAdmin, adminActual } = useAdmin();
+  const { esAdmin, adminActual, cerrarSesion } = useAdmin();
+  const toast = useToast();
   const fondo = fondoPastel(tema, 'verde');
   const a = m.ajustes;
   // Umbral real de notificación: si marca grupo vulnerable, manda su nivel mínimo.
@@ -201,32 +203,69 @@ export default function Ajustes() {
         </Tarjeta>
       </Seccion>
 
-      {/* ═══ ADMINISTRACIÓN DEL SISTEMA ═══ */}
-      <Seccion tinta={fondo.tintaSuave} titulo="Administración del sistema">
-        <Tarjeta style={{ padding: 0 }}>
-          <Pressable
-            style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 }, pressed && { opacity: 0.7 }]}
-            accessibilityRole="button"
-            accessibilityHint="Abre la pantalla de Administración"
-            onPress={() => router.push('/ajustes/admin')}
-          >
-            <Icono nombre={esAdmin ? 'shield-check' : 'shield-account'} tam={22} color={tema.accionTexto} />
-            <View style={{ flex: 1 }}>
-              <T t={13} f="negrita">
-                {esAdmin ? 'Panel de Administradores' : 'Acceso de Administrador'}
-              </T>
-              <T t={11} c={tema.textoSuave} style={{ marginTop: 2 }}>
-                {esAdmin
-                  ? `Sesión activa (${adminActual?.nombre ?? 'Admin'}) · Estaciones, tópicos MQTT y diagnóstico.`
-                  : 'Inicia sesión para registrar estaciones y configurar el sistema.'}
-              </T>
-            </View>
-            <Icono nombre="chevron-right" tam={20} color={tema.textoSuave} />
-          </Pressable>
-        </Tarjeta>
-      </Seccion>
+      {/* ═══ ADMINISTRACIÓN DEL SISTEMA (solo con sesión de administrador) ═══ */}
+      {esAdmin ? (
+        <Seccion tinta={fondo.tintaSuave} titulo="Administración del sistema">
+          <Tarjeta style={{ padding: 0 }}>
+            <Pressable
+              style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 }, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button"
+              accessibilityHint="Abre la pantalla de Administración"
+              onPress={() => router.push('/ajustes/admin')}
+            >
+              <Icono nombre="shield-check" tam={22} color={tema.accionTexto} />
+              <View style={{ flex: 1 }}>
+                <T t={13} f="negrita">
+                  Panel de Administradores
+                </T>
+                <T t={11} c={tema.textoSuave} style={{ marginTop: 2 }}>
+                  {`Sesión activa (${adminActual?.nombre ?? 'Admin'}) · Estaciones, tópicos MQTT y diagnóstico.`}
+                </T>
+              </View>
+              <Icono nombre="chevron-right" tam={20} color={tema.textoSuave} />
+            </Pressable>
+          </Tarjeta>
+        </Seccion>
+      ) : null}
 
-      <T t={10.5} c={fondo.tintaSuave} style={{ textAlign: 'center', marginTop: 12 }}>
+      {/* Acceso discreto para administradores */}
+      {esAdmin ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar sesión de administrador"
+          hitSlop={8}
+          style={({ pressed }) => [{ alignSelf: 'center', marginTop: 16 }, pressed && { opacity: 0.6 }]}
+          onPress={async () => {
+            await cerrarSesion();
+            toast('Sesión de administrador cerrada');
+          }}
+        >
+          <T t={11} c={fondo.tintaSuave} style={{ textAlign: 'center' }}>
+            Sesión de administrador activa ·{' '}
+            <T t={11} f="negrita" c={fondo.tinta} style={{ textDecorationLine: 'underline' }}>
+              Cerrar sesión
+            </T>
+          </T>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityHint="Abre el inicio de sesión de administrador"
+          hitSlop={8}
+          style={({ pressed }) => [{ alignSelf: 'center', marginTop: 16 }, pressed && { opacity: 0.6 }]}
+          onPress={() => router.push('/ajustes/admin')}
+        >
+          <T t={11} c={fondo.tintaSuave} style={{ textAlign: 'center' }}>
+            ¿Eres administrador?{' '}
+            <T t={11} f="negrita" c={fondo.tinta} style={{ textDecorationLine: 'underline' }}>
+              Click aquí
+            </T>{' '}
+            para ver todas las funcionalidades
+          </T>
+        </Pressable>
+      )}
+
+      <T t={10.5} c={fondo.tintaSuave} style={{ textAlign: 'center', marginTop: 8 }}>
         AURA-172 v1.0 · Alerta Urbana de Riesgo Ambiental
       </T>
     </Pantalla>
