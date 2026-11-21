@@ -11,6 +11,7 @@ export interface EstadoAlerta {
   nivel: number;
   nivelMaximo: number;
   pm25?: number;
+  pm10?: number;
   co?: number;
   principal: Contaminante;
   /** Desde cuándo el aire está por debajo del umbral sin haber cerrado la alerta */
@@ -66,6 +67,7 @@ export function evaluarAlerta(p: {
         nivel: n,
         nivelMaximo: n,
         pm25: lectura.pm25,
+        pm10: lectura.pm10,
         co: lectura.co,
         principal: aire.principal,
         dispositivo,
@@ -96,6 +98,7 @@ export function evaluarAlerta(p: {
       nivel: n,
       nivelMaximo: Math.max(actual.nivelMaximo, n),
       pm25: lectura.pm25 ?? actual.pm25,
+      pm10: lectura.pm10 ?? actual.pm10,
       co: lectura.co ?? actual.co,
       principal: aire.principal,
       mejorandoDesde: undefined,

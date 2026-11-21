@@ -10,9 +10,18 @@ export class ErrorEsp32 extends Error {}
 let clienteMqtt: MqttClient | null = null;
 let ultimaLecturaMqtt: Lectura | null = null;
 let topicoActual = 'colectivo/aire/nodo1';
+let brokerActual = '';
 let oyentes: ((l: Lectura) => void)[] = [];
 let estadoConexionMqtt: 'conectado' | 'desconectado' | 'error' = 'desconectado';
 
+/**
+ * Conecta (o reutiliza) el cliente de la estación activa.
+ *
+ * Si el broker y el tópico son los mismos se conserva el cliente actual
+ * (mqtt.js reconecta solo) y se entrega la última lectura conocida. Si cambia
+ * cualquiera de los dos, se cierra el cliente anterior y sus mensajes dejan de
+ * llegar a los oyentes de inmediato.
+ */
 export function iniciarClienteMqtt(
   brokerWsUrl = 'wss://broker.hivemq.com:8884/mqtt',
   topico = 'colectivo/aire/nodo1',
@@ -22,39 +31,41 @@ export function iniciarClienteMqtt(
   // oyente para no acumular callbacks cada vez que se cambia de estación.
   if (onLectura) oyentes = [onLectura];
 
-  if (clienteMqtt && topicoActual === topico && clienteMqtt.connected) {
+  if (clienteMqtt && topicoActual === topico && brokerActual === brokerWsUrl) {
     if (ultimaLecturaMqtt && onLectura) onLectura(ultimaLecturaMqtt);
     return;
   }
 
-  if (clienteMqtt) {
-    try {
-      clienteMqtt.end();
-    } catch {}
-    clienteMqtt = null;
-  }
+  cerrarCliente();
 
   // Al cambiar o reconectar no debe reutilizarse una lectura vieja de otro nodo.
   ultimaLecturaMqtt = null;
   topicoActual = topico;
+  brokerActual = brokerWsUrl;
   const clientId = 'AppMovil_Eq3_' + Math.random().toString(16).substring(2, 8);
 
   try {
-    clienteMqtt = mqtt.connect(brokerWsUrl, {
+    const cliente = mqtt.connect(brokerWsUrl, {
       clientId,
       clean: true,
       connectTimeout: 7000,
       reconnectPeriod: 3000,
     });
+    clienteMqtt = cliente;
+    // Un cliente ya reemplazado puede emitir eventos mientras se cierra:
+    // se ignoran para no mezclar lecturas ni estados de otro nodo.
+    const vigente = () => clienteMqtt === cliente;
 
-    clienteMqtt.on('connect', () => {
+    cliente.on('connect', () => {
+      if (!vigente()) return;
       estadoConexionMqtt = 'conectado';
-      clienteMqtt?.subscribe(topicoActual, (err) => {
+      cliente.subscribe(topico, (err) => {
         if (err) console.error('[MQTT] Error al suscribirse:', err);
       });
     });
 
-    clienteMqtt.on('message', (_top, mensaje) => {
+    cliente.on('message', (top, mensaje) => {
+      if (!vigente() || top !== topico) return;
       try {
         const texto = mensaje.toString();
         const obj = JSON.parse(texto);
@@ -66,25 +77,32 @@ export function iniciarClienteMqtt(
       }
     });
 
-    clienteMqtt.on('error', () => {
-      estadoConexionMqtt = 'error';
+    cliente.on('error', () => {
+      if (vigente()) estadoConexionMqtt = 'error';
     });
 
-    clienteMqtt.on('close', () => {
-      estadoConexionMqtt = 'desconectado';
+    cliente.on('close', () => {
+      if (vigente()) estadoConexionMqtt = 'desconectado';
     });
   } catch (err) {
     console.error('[MQTT] Falló conexión con broker:', err);
   }
 }
 
-export function detenerClienteMqtt() {
-  if (clienteMqtt) {
+function cerrarCliente() {
+  const anterior = clienteMqtt;
+  clienteMqtt = null;
+  brokerActual = '';
+  if (anterior) {
     try {
-      clienteMqtt.end();
+      anterior.end(true);
     } catch {}
-    clienteMqtt = null;
   }
+}
+
+export function detenerClienteMqtt() {
+  cerrarCliente();
+  ultimaLecturaMqtt = null;
   oyentes = [];
   estadoConexionMqtt = 'desconectado';
 }

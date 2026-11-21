@@ -1,4 +1,5 @@
 import type { Monitor } from '../estado/monitor';
+import { CONTAMINANTES } from '../logica/calidadAire';
 
 /**
  * Ayudas de presentación compartidas por Inicio, Contaminantes y el fondo.
@@ -33,5 +34,6 @@ export function nivelGeneral(m: Monitor): number | null {
 
 /** Contaminante determinante tal como lo reporta el ESP32 o la dominancia. */
 export function dominante(m: Monitor): string {
-  return m.lectura?.dominante ?? (m.aire?.principal === 'co' ? 'CO' : 'PM2.5');
+  const principal = m.aire?.principal;
+  return m.lectura?.dominante ?? (principal && principal !== 'sensor' ? CONTAMINANTES[principal].simbolo : 'PM2.5');
 }

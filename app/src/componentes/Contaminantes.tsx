@@ -23,9 +23,8 @@ import { FranjaNeutra, FranjaNivel } from './Nivel';
 export type SubMetricaParticulas = 'pm25' | 'pm10' | 'pm1';
 
 /**
- * Escalas de partículas que ya usaba la pantalla de Resumen. PM2.5 usa los
- * cortes y `posicionBarra()` de calidadAire.ts; PM10 conserva sus cortes de
- * presentación (calidadAire.ts no los define) y PM1 no tiene escala NOM-172.
+ * Escalas de partículas. PM2.5 y PM10 usan los cortes NOM-172 y
+ * `posicionBarra()` de calidadAire.ts; PM1 no tiene escala NOM-172.
  */
 const ESCALAS_PARTICULAS: Record<
   SubMetricaParticulas,
@@ -40,22 +39,11 @@ const ESCALAS_PARTICULAS: Record<
   pm10: {
     etiqueta: 'PM10',
     fin: '235+',
-    indice: (v) => (v <= 50 ? 0 : v <= 75 ? 1 : v <= 155 ? 2 : v <= 235 ? 3 : 4),
-    posicion: (v) => posicionTramos(v, [50, 75, 155, 235]),
+    indice: (v) => indiceDe('pm10', v),
+    posicion: (v) => posicionBarra('pm10', v),
   },
   pm1: { etiqueta: 'PM1', fin: '', indice: () => null, posicion: () => null },
 };
-
-function posicionTramos(valor: number, cortes: number[]): number {
-  const tramos = [0, ...cortes, cortes[3] * 1.5];
-  for (let i = 0; i < 5; i++) {
-    if (valor <= tramos[i + 1]) {
-      const f = (valor - tramos[i]) / (tramos[i + 1] - tramos[i]);
-      return (i + Math.min(1, Math.max(0, f))) / 5;
-    }
-  }
-  return 1;
-}
 
 /** Nivel (0–4) de un valor de la métrica, o null si la métrica no tiene escala. */
 function indiceMetrica(metrica: Metrica, v: number): number | null {

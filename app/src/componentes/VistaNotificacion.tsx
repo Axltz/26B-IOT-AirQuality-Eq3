@@ -9,6 +9,7 @@ import {
   CONTAMINANTES,
   NIVELES,
   concentracion,
+  esCalificable,
   nivel,
   posicionBarra,
   posicionNivel,
@@ -53,7 +54,9 @@ function DetalleAlerta({ a, fondo }: { a: EstadoAlerta; fondo: TintaFondo }) {
   const esCo = a.principal === 'co';
   const valor = concentracion(a, a.principal);
   const posicion =
-    enCurso && valor !== undefined ? posicionBarra(esCo ? 'co' : 'pm25', valor) : posicionNivel(cat.indice);
+    enCurso && valor !== undefined && esCalificable(a.principal)
+      ? posicionBarra(a.principal, valor)
+      : posicionNivel(cat.indice);
 
   const detalle = enCurso
     ? `Detectamos una concentración elevada de ${c.enFrase} ${c.exterior ? 'en tu zona' : `en ${a.dispositivo}`}.`

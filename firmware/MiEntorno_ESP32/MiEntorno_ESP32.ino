@@ -23,6 +23,15 @@
 // Cada cuánto se guarda una fila en la tabla `lecturas` de Supabase
 const unsigned long INTERVALO_NUBE_MS = 60000;
 
+// Reintentos de red sin detener el ciclo: el semáforo, la LCD y el histórico
+// siguen funcionando aunque se caiga el broker MQTT
+const unsigned long REINTENTO_WIFI_MS = 10000;
+const unsigned long REINTENTO_MQTT_MS = 5000;
+
+// El PMS5003 manda una trama cada 1-2.3 s; si no llega ninguna en este tiempo
+// se considera desconectado y sus valores dejan de reportarse
+const unsigned long VIGENCIA_PMS_MS = 10000;
+
 // Inicializa el display LCD I2C con dirección 0x27 y formato 16x2
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -100,10 +109,73 @@ void reconnect_mqtt()
   }
 }
 
+// Mantiene Wi-Fi y MQTT sin bloquear el ciclo. Devuelve true si se puede publicar.
+bool mantener_conexiones()
+{
+  static unsigned long ultimoIntentoWifi = 0;
+  static unsigned long ultimoIntentoMqtt = 0;
+  static bool primerIntentoMqtt = true;
+
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    if (millis() - ultimoIntentoWifi >= REINTENTO_WIFI_MS)
+    {
+      ultimoIntentoWifi = millis();
+      Serial.println("[WIFI] Sin conexión, reintentando...");
+      WiFi.reconnect();
+    }
+    return false;
+  }
+
+  if (!client.connected())
+  {
+    if (primerIntentoMqtt || millis() - ultimoIntentoMqtt >= REINTENTO_MQTT_MS)
+    {
+      primerIntentoMqtt = false;
+      ultimoIntentoMqtt = millis();
+      reconnect_mqtt();
+    }
+    if (!client.connected())
+      return false;
+  }
+
+  client.loop();
+  return true;
+}
+
 // Agrega un campo numérico al JSON; los valores NaN se mandan como null
 String campoJson(const char *nombre, float valor, int decimales)
 {
   return String("\"") + nombre + "\":" + (isnan(valor) ? String("null") : String(valor, decimales));
+}
+
+// Agrega un nivel NOM-172 al JSON; -1 (sin dato del sensor) se manda como null
+String nivelJson(const char *nombre, int nivel)
+{
+  return String("\"") + nombre + "\":" + (nivel < 0 ? String("null") : String(nivel));
+}
+
+// Texto para la LCD y el monitor serial: "--" si el sensor no dio lectura
+String textoValor(float valor, int decimales)
+{
+  return isnan(valor) ? String("--") : String(valor, decimales);
+}
+
+// Clasifica una concentración con los cuatro cortes NOM-172
+// (0 Buena ... 4 Extremadamente mala). Devuelve -1 si no hay dato.
+int clasificar(float valor, float buena, float aceptable, float mala, float muyMala)
+{
+  if (isnan(valor))
+    return -1;
+  if (valor <= buena)
+    return 0;
+  if (valor <= aceptable)
+    return 1;
+  if (valor <= mala)
+    return 2;
+  if (valor <= muyMala)
+    return 3;
+  return 4;
 }
 
 // Inserta una fila en la tabla `lecturas` de Supabase (Data API por HTTPS).
@@ -169,27 +241,17 @@ void setup()
 
   setup_wifi_manager();
   client.setServer(mqtt_server, mqtt_port);
+  // Acota cuánto se bloquea un intento fallido de conexión con el broker
+  client.setSocketTimeout(5);
 }
 
-// Ciclo operativo que adquiere datos reales, aplica normas y actualiza salidas
+// Ciclo operativo: adquiere datos, aplica la norma y actualiza las salidas.
+// Los sensores, el semáforo, la LCD y el histórico no dependen del broker MQTT.
 void loop()
 {
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    WiFi.reconnect();
-    delay(2000);
-    return;
-  }
+  bool enLinea = mantener_conexiones();
 
-  if (!client.connected())
-  {
-    reconnect_mqtt();
-    delay(2000);
-    return;
-  }
-  client.loop();
-
-  // Lee los valores reales de temperatura y humedad del ambiente
+  // Lee los valores reales de temperatura y humedad del ambiente (NaN si falla el DHT22)
   float humedad = dht.readHumidity();
   float temperatura = dht.readTemperature();
 
@@ -201,8 +263,9 @@ void loop()
   static float pm1 = 0.0;
   static float pm25 = 0.0;
   static float pm10 = 0.0;
-  // Evita guardar en el histórico los ceros iniciales antes de la primera trama
+  // Si ya llegó la primera trama y cuándo llegó la última
   static bool pmsListo = false;
+  static unsigned long ultimaTramaPms = 0;
 
   // Limpia el búfer serial para evitar retrasos en la lectura de datos
   while (Serial2.available() > 32)
@@ -231,60 +294,31 @@ void loop()
         if (valPM10 < 1000)
           pm10 = (float)valPM10;
         pmsListo = true;
+        ultimaTramaPms = millis();
       }
     }
   }
 
-  // Aplica la compensación higroscópica si la humedad supera el 70% según norma
-  float pm1_compensado = pm1;
-  float pm25_compensado = pm25;
-  float pm10_compensado = pm10;
+  // Antes de la primera trama o con el sensor desconectado las partículas son
+  // desconocidas (NaN -> null en el JSON), en vez de mandar ceros o valores viejos
+  bool pmsVigente = pmsListo && (millis() - ultimaTramaPms < VIGENCIA_PMS_MS);
+  float pm1_compensado = pmsVigente ? pm1 : NAN;
+  float pm25_compensado = pmsVigente ? pm25 : NAN;
+  float pm10_compensado = pmsVigente ? pm10 : NAN;
 
-  if (!isnan(humedad) && humedad > 70.0)
+  // Aplica la compensación higroscópica si la humedad supera el 70%
+  if (pmsVigente && !isnan(humedad) && humedad > 70.0)
   {
     pm1_compensado = pm1 * 0.85;
     pm25_compensado = pm25 * 0.85;
     pm10_compensado = pm10 * 0.85;
   }
 
-  // Clasifica el riesgo de PM2.5 según los rangos oficiales de la NOM-172
-  int nivelPM25 = 0;
-  if (pm25_compensado <= 15.0)
-    nivelPM25 = 0;
-  else if (pm25_compensado <= 33.0)
-    nivelPM25 = 1;
-  else if (pm25_compensado <= 79.0)
-    nivelPM25 = 2;
-  else if (pm25_compensado <= 130.0)
-    nivelPM25 = 3;
-  else
-    nivelPM25 = 4;
-
-  // Clasifica el riesgo de PM10 según los rangos oficiales de la NOM-172
-  int nivelPM10 = 0;
-  if (pm10_compensado <= 50.0)
-    nivelPM10 = 0;
-  else if (pm10_compensado <= 75.0)
-    nivelPM10 = 1;
-  else if (pm10_compensado <= 155.0)
-    nivelPM10 = 2;
-  else if (pm10_compensado <= 235.0)
-    nivelPM10 = 3;
-  else
-    nivelPM10 = 4;
-
-  // Clasifica el riesgo del gas CO según los rangos oficiales de la NOM-172
-  int nivelCO = 0;
-  if (ppmCO <= 5.0)
-    nivelCO = 0;
-  else if (ppmCO <= 9.0)
-    nivelCO = 1;
-  else if (ppmCO <= 12.0)
-    nivelCO = 2;
-  else if (ppmCO <= 16.0)
-    nivelCO = 3;
-  else
-    nivelCO = 4;
+  // Clasifica cada contaminante según los rangos oficiales de la NOM-172
+  // (-1 = sin dato: ese contaminante no participa en la dominancia)
+  int nivelPM25 = clasificar(pm25_compensado, 15.0, 33.0, 79.0, 130.0);
+  int nivelPM10 = clasificar(pm10_compensado, 50.0, 75.0, 155.0, 235.0);
+  int nivelCO = clasificar(ppmCO, 5.0, 9.0, 12.0, 16.0);
 
   // Obtiene el contaminante dominante y actualiza el semáforo de LEDs físicos
   int nivelDominante = max(nivelPM25, max(nivelPM10, nivelCO));
@@ -330,29 +364,29 @@ void loop()
     break;
   }
 
-  // Empaqueta todas las variables en un objeto JSON para transmitir vía MQTT
-  String tempStr = isnan(temperatura) ? "0.0" : String(temperatura, 1);
-  String humStr = isnan(humedad) ? "0.0" : String(humedad, 1);
+  // Empaqueta todas las variables en un objeto JSON; un sensor sin lectura va como null
+  String payload = String("{") +
+                   campoJson("pm1", pm1_compensado, 1) + "," +
+                   campoJson("pm25", pm25_compensado, 1) + "," +
+                   campoJson("pm10", pm10_compensado, 1) + "," +
+                   campoJson("co", ppmCO, 2) + "," +
+                   campoJson("temp", temperatura, 1) + "," +
+                   campoJson("hum", humedad, 1) + "," +
+                   nivelJson("nivel_pm25", nivelPM25) + "," +
+                   nivelJson("nivel_pm10", nivelPM10) + "," +
+                   nivelJson("nivel_co", nivelCO) + "," +
+                   nivelJson("nivel_general", nivelDominante) + "," +
+                   "\"dominante\":\"" + contaminanteDominante + "\"," +
+                   "\"estado\":\"" + estadoCalidad + "\"}";
 
-  String payload = "{\"pm1\":" + String(pm1_compensado, 1) +
-                   ",\"pm25\":" + String(pm25_compensado, 1) +
-                   ",\"pm10\":" + String(pm10_compensado, 1) +
-                   ",\"co\":" + String(ppmCO, 2) +
-                   ",\"temp\":" + tempStr +
-                   ",\"hum\":" + humStr +
-                   ",\"nivel_pm25\":" + String(nivelPM25) +
-                   ",\"nivel_pm10\":" + String(nivelPM10) +
-                   ",\"nivel_co\":" + String(nivelCO) +
-                   ",\"nivel_general\":" + String(nivelDominante) +
-                   ",\"dominante\":\"" + contaminanteDominante + "\"" +
-                   ",\"estado\":\"" + estadoCalidad + "\"}";
+  bool publicado = enLinea && client.publish(mqtt_topic.c_str(), payload.c_str());
 
-  client.publish(mqtt_topic.c_str(), payload.c_str());
-
-  // Guarda una muestra por minuto en Supabase (histórico aunque la app esté cerrada)
+  // Guarda una muestra por minuto en Supabase (histórico aunque la app esté
+  // cerrada). Solo necesita Wi-Fi: no depende de que el broker MQTT responda.
   static unsigned long ultimoEnvioNube = 0;
   static bool primerEnvioNube = true;
-  if (HISTORICO_NUBE && pmsListo && (primerEnvioNube || millis() - ultimoEnvioNube >= INTERVALO_NUBE_MS))
+  if (HISTORICO_NUBE && pmsVigente && WiFi.status() == WL_CONNECTED &&
+      (primerEnvioNube || millis() - ultimoEnvioNube >= INTERVALO_NUBE_MS))
   {
     primerEnvioNube = false;
     ultimoEnvioNube = millis();
@@ -364,6 +398,11 @@ void loop()
   static bool vistaLcd = false;
   vistaLcd = !vistaLcd;
 
+  String tempStr = textoValor(temperatura, 1);
+  String humStr = textoValor(humedad, 1);
+  String pm25Str = isnan(pm25_compensado) ? String("--") : String((int)pm25_compensado);
+  String pm10Str = isnan(pm10_compensado) ? String("--") : String((int)pm10_compensado);
+
   String linea1 = "";
   String linea2 = "";
 
@@ -373,7 +412,7 @@ void loop()
     linea2 = "DOM:" + contaminanteDominante;
     if (contaminanteDominante == "PM2.5")
     {
-      linea2 += " " + String((int)pm25_compensado) + "ug";
+      linea2 += " " + pm25Str + "ug";
     }
     else if (contaminanteDominante == "CO")
     {
@@ -381,13 +420,13 @@ void loop()
     }
     else if (contaminanteDominante == "PM10")
     {
-      linea2 += " " + String((int)pm10_compensado) + "ug";
+      linea2 += " " + pm10Str + "ug";
     }
   }
   else
   {
     linea1 = "T:" + tempStr + "C H:" + humStr + "%";
-    linea2 = "P2.5:" + String((int)pm25_compensado) + " C:" + String(ppmCO, 1);
+    linea2 = "P2.5:" + pm25Str + " C:" + String(ppmCO, 1);
   }
 
   while (linea1.length() < 16)
@@ -407,9 +446,11 @@ void loop()
   // Muestra las trazas de depuración detalladas en el Monitor Serial
   Serial.println("\n------------------------------------------------");
   Serial.printf("Temp: %s °C | Hum: %s %%\n", tempStr.c_str(), humStr.c_str());
-  Serial.printf("PM1: %.1f | PM2.5: %.1f | PM10: %.1f ug/m3 | CO: %.2f PPM\n", pm1_compensado, pm25_compensado, pm10_compensado, ppmCO);
+  Serial.printf("PM1: %s | PM2.5: %s | PM10: %s ug/m3 | CO: %.2f PPM\n",
+                textoValor(pm1_compensado, 1).c_str(), textoValor(pm25_compensado, 1).c_str(),
+                textoValor(pm10_compensado, 1).c_str(), ppmCO);
   Serial.printf("Dominante: %s (Nivel %d) | Estado: [%s]\n", contaminanteDominante.c_str(), nivelDominante, estadoCalidad.c_str());
-  Serial.print("JSON Enviado: ");
+  Serial.print(publicado ? "JSON Enviado: " : "JSON sin enviar (sin conexión MQTT): ");
   Serial.println(payload);
   Serial.println("------------------------------------------------");
 

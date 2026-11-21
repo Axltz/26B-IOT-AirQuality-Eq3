@@ -3,9 +3,10 @@ import { Paleta } from '../tema';
 
 /**
  * Calidad del aire según la NOM-172-SEMARNAT-2023 (Índice AIRE Y SALUD),
- * igual que el semáforo del ESP32: se califican PM2.5 y CO con los mismos
- * cortes que el programa del ESP32 y manda el peor de los dos (regla de
- * dominancia). Si el ESP32 manda su propio nivel (`nivel_nom172`), se usa ese.
+ * igual que el semáforo del ESP32: se califican PM2.5, PM10 y CO con los
+ * mismos cortes que el programa del ESP32 y manda el peor (regla de
+ * dominancia). Si el ESP32 manda su propio nivel (`nivel_general`) y su
+ * contaminante `dominante`, se usan esos.
  */
 export type Contaminante = 'pm25' | 'pm10' | 'co' | 'no2' | 'co2' | 'cov' | 'sensor';
 
@@ -62,6 +63,7 @@ export function nivel(indice: number): Nivel {
 /** Límite superior de Buena, Aceptable, Mala y Muy mala (igual que el ESP32). */
 export const CORTES = {
   pm25: [15, 33, 79, 130], // µg/m³ (cortes oficiales NOM-172-SEMARNAT-2023)
+  pm10: [50, 75, 155, 235], // µg/m³
   co: [5, 9, 12, 16], // ppm
 } as const;
 
@@ -81,10 +83,20 @@ export interface CalidadAire {
   niveles: Partial<Record<Calificable, number>>;
 }
 
-/** Califica una lectura. Devuelve null si no hay PM2.5, CO ni nivel del ESP32. */
+/** `dominante` tal como lo escribe el firmware ("PM2.5", "PM10", "CO"). */
+const DOMINANTE_ESP32: Record<string, Calificable> = {
+  'PM2.5': 'pm25',
+  PM25: 'pm25',
+  PM10: 'pm10',
+  CO: 'co',
+};
+
+/** Califica una lectura. Devuelve null si no hay PM2.5, PM10, CO ni nivel del ESP32. */
 export function evaluarAire(l: Lectura): CalidadAire | null {
   const niveles: Partial<Record<Calificable, number>> = {};
+  // El orden importa: en un empate gana el primero (PM2.5 > PM10 > CO), igual que el ESP32.
   if (l.pm25 !== undefined) niveles.pm25 = indiceDe('pm25', l.pm25);
+  if (l.pm10 !== undefined) niveles.pm10 = indiceDe('pm10', l.pm10);
   if (l.co !== undefined) niveles.co = indiceDe('co', l.co);
 
   let principal: Contaminante = 'sensor';
@@ -96,13 +108,26 @@ export function evaluarAire(l: Lectura): CalidadAire | null {
     }
   }
   if (mayor < 0 && l.nivelReportado === undefined) return null;
-  // Si el ESP32 manda el nivel de su semáforo, se respeta para que coincidan.
+  // Si el ESP32 manda el nivel de su semáforo (y con él su contaminante
+  // dominante), se respetan para que app, alerta y LEDs coincidan.
+  if (l.nivelReportado !== undefined) {
+    const reportado = l.dominante ? DOMINANTE_ESP32[l.dominante.trim().toUpperCase()] : undefined;
+    if (reportado) principal = reportado;
+  }
   return { nivel: nivel(l.nivelReportado ?? mayor), principal, niveles };
 }
 
+/** ¿Tiene cortes NOM-172 este contaminante? */
+export function esCalificable(c: Contaminante): c is Calificable {
+  return c in CORTES;
+}
+
 /** Concentración del contaminante principal (para mostrar y para la barra). */
-export function concentracion(l: { pm25?: number; co?: number }, c: Contaminante): number | undefined {
-  return c === 'co' ? l.co : c === 'pm25' ? l.pm25 : undefined;
+export function concentracion(
+  l: { pm25?: number; pm10?: number; co?: number },
+  c: Contaminante,
+): number | undefined {
+  return c === 'co' ? l.co : c === 'pm25' ? l.pm25 : c === 'pm10' ? l.pm10 : undefined;
 }
 
 /** Posición (0–1) de una concentración en la barra de 5 tramos de su contaminante. */

@@ -20,6 +20,7 @@ import type { Lectura } from '../modelos/lectura';
 import * as almacen from '../servicios/almacenamiento';
 import {
   describirError,
+  ErrorEsp32,
   historialEsp32,
   leerEsp32,
   quitarPushEsp32,
@@ -48,6 +49,14 @@ export type EstadoConexion = 'conectando' | 'enLinea' | 'sinConexion';
 const INTERVALO_MUESTRA = 60_000;
 /** Cuánto historial se conserva. */
 const RETENCION = 26 * 3600_000;
+/**
+ * Una lectura MQTT más vieja que esto ya no es "en vivo": el ESP32 publica
+ * cada ~2 s, así que 15 s sin mensajes significan que el nodo o el broker se
+ * cayeron.
+ */
+const LECTURA_VIGENTE_MS = 15_000;
+/** Cada cuánto se revisa si la telemetría MQTT sigue llegando. */
+const VIGILANCIA_MS = 5_000;
 /** Duración de "Simular alerta de aire". */
 export const DURACION_SIMULACION = 60_000;
 
@@ -78,6 +87,8 @@ export class Monitor {
   private sondeo: ReturnType<typeof setInterval> | null = null;
   private finSimulacion: ReturnType<typeof setTimeout> | null = null;
   private consultando = false;
+  /** true mientras se cargan los datos guardados del dispositivo activo. */
+  private preparando = false;
   private historialPendiente = false;
   private ultimoGuardado = Date.now();
   private limpiezas: (() => void)[] = [];
@@ -189,25 +200,11 @@ export class Monitor {
       this.avisarCambios();
     }
     this.programarSondeo();
-
-    // Iniciar cliente MQTT en tiempo real hacia el broker de HiveMQ
-    // El tópico se toma del dispositivo activo (cada nodo tiene el suyo).
-    try {
-      const topico = this.dispositivo.topicoMqtt ?? 'colectivo/aire/nodo1';
-      iniciarClienteMqtt(urlBrokerMqtt(this.dispositivo.direccion), topico, (nueva) => {
-        if (!this.dispositivo.demo) {
-          this.lecturaReal = nueva;
-          this.conexion = 'enLinea';
-          this.error = null;
-          this.ultimaActualizacion = nueva.fecha;
-          this.registrar(nueva);
-          void this.evaluar();
-          this.avisarCambios();
-        }
-      });
-    } catch (e) {
-      console.warn('Error iniciando cliente MQTT:', e);
-    }
+    // prepararDispositivo() ya conecta MQTT; esto cubre el caso en que la
+    // carga falló (no hace nada si ya está conectado al mismo nodo).
+    this.conectarMqtt();
+    const vigilancia = setInterval(this.vigilarSenal, VIGILANCIA_MS);
+    this.limpiezas.push(() => clearInterval(vigilancia));
 
     void this.actualizar(true);
   }
@@ -225,17 +222,68 @@ export class Monitor {
     this.sondeo = setInterval(() => void this.actualizar(), this.ajustes.intervaloSeg * 1000);
   }
 
+  /**
+   * Deja todo listo para el dispositivo activo. Es el único lugar que cambia
+   * la suscripción MQTT, así que cambiar, editar o eliminar la estación activa
+   * siempre escucha el broker y el tópico correctos.
+   */
   private async prepararDispositivo() {
-    this.lecturaReal = null;
-    this.error = null;
-    this.ultimaActualizacion = null;
-    this.conexion = 'conectando';
-    this.cancelarSimulacion();
-    const d = this.dispositivo;
-    this.alerta = await almacen.cargarAlerta(d.id);
-    this.historial = d.demo ? historialSimulado(Date.now()) : await almacen.cargarHistorial(d.id);
-    this.depurarHistorial();
+    this.preparando = true;
+    try {
+      // Primero se cambia la suscripción: desde aquí ya no llegan mensajes
+      // del nodo anterior que pudieran mezclarse con los datos que se cargan.
+      this.conectarMqtt();
+      this.lecturaReal = null;
+      this.error = null;
+      this.ultimaActualizacion = null;
+      this.conexion = 'conectando';
+      this.cancelarSimulacion();
+      const d = this.dispositivo;
+      this.alerta = await almacen.cargarAlerta(d.id);
+      this.historial = d.demo ? historialSimulado(Date.now()) : await almacen.cargarHistorial(d.id);
+      this.depurarHistorial();
+    } finally {
+      this.preparando = false;
+    }
   }
+
+  /** Suscribe al broker y tópico del dispositivo activo (o se desconecta si no usa MQTT). */
+  private conectarMqtt() {
+    const d = this.dispositivo;
+    if (d.demo || !esBrokerMqtt(d.direccion)) {
+      detenerClienteMqtt();
+      return;
+    }
+    try {
+      iniciarClienteMqtt(urlBrokerMqtt(d.direccion), d.topicoMqtt || 'colectivo/aire/nodo1', this.alRecibirMqtt);
+    } catch (e) {
+      console.warn('Error iniciando cliente MQTT:', e);
+    }
+  }
+
+  private alRecibirMqtt = (nueva: Lectura) => {
+    // Mientras se cargan los datos del dispositivo no se toca su estado; la
+    // lectura queda en el cliente MQTT y la toma el actualizar() que sigue.
+    if (this.preparando || this.dispositivo.demo) return;
+    this.lecturaReal = nueva;
+    this.conexion = 'enLinea';
+    this.error = null;
+    this.ultimaActualizacion = nueva.fecha;
+    this.registrar(nueva);
+    void this.evaluar();
+    this.avisarCambios();
+  };
+
+  /**
+   * Si el nodo deja de publicar no llega ningún evento: se revisa cada pocos
+   * segundos y, si la última lectura ya venció, actualizar() la descarta.
+   */
+  private vigilarSenal = () => {
+    const d = this.dispositivo;
+    const l = this.lecturaReal;
+    if (!l || d.demo || !esBrokerMqtt(d.direccion)) return;
+    if (Date.now() - l.fecha >= LECTURA_VIGENTE_MS) void this.actualizar();
+  };
 
   // ------------------------------------------------------------------ sondeo
 
@@ -253,7 +301,7 @@ export class Monitor {
       } else {
         const mqttLectura = obtenerUltimaLecturaMqtt();
         // Si hay telemetría viva por MQTT en los últimos 15 segundos
-        if (mqttLectura && Date.now() - mqttLectura.fecha < 15000) {
+        if (mqttLectura && Date.now() - mqttLectura.fecha < LECTURA_VIGENTE_MS) {
           nueva = mqttLectura;
         } else if (d.direccion && !esBrokerMqtt(d.direccion)) {
           // Si tiene configurada una IP local HTTP específica
@@ -262,7 +310,7 @@ export class Monitor {
           nueva = await leerEsp32(url);
         } else {
           // Esperando telemetría MQTT del ESP32 real
-          throw new Error(
+          throw new ErrorEsp32(
             `Esperando datos del ESP32 vía MQTT en ${d.topicoMqtt ?? 'colectivo/aire/nodo1'}. Verifica que el nodo esté encendido.`,
           );
         }
@@ -275,6 +323,9 @@ export class Monitor {
       this.registrar(nueva);
     } catch (e) {
       if (d.id !== this.dispositivo.id) return;
+      // Sin datos vigentes no se muestra ni se evalúa la lectura anterior:
+      // una alerta no debe seguir viva (ni abrirse) con datos de hace minutos.
+      this.lecturaReal = null;
       this.conexion = 'sinConexion';
       this.error = describirError(e);
     } finally {
@@ -589,23 +640,6 @@ export class Monitor {
     await this.guardarAjustes({ ...this.ajustes, activoId: id });
     await this.prepararDispositivo();
     this.avisarCambios();
-    // Reconectar MQTT al tópico y broker del nuevo dispositivo activo
-    const topico = this.dispositivo.topicoMqtt ?? 'colectivo/aire/nodo1';
-    try {
-      iniciarClienteMqtt(urlBrokerMqtt(this.dispositivo.direccion), topico, (nueva) => {
-        if (!this.dispositivo.demo) {
-          this.lecturaReal = nueva;
-          this.conexion = 'enLinea';
-          this.error = null;
-          this.ultimaActualizacion = nueva.fecha;
-          this.registrar(nueva);
-          void this.evaluar();
-          this.avisarCambios();
-        }
-      });
-    } catch (e) {
-      console.warn('Error reconectando MQTT al cambiar dispositivo:', e);
-    }
     await this.actualizar(true);
   };
 

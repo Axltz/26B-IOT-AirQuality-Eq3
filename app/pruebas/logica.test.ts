@@ -54,6 +54,30 @@ describe('NOM-172 (igual que el semáforo del ESP32)', () => {
     assert.equal(aire({ pm25: 30, co: 2 })!.principal, 'pm25');
   });
 
+  test('PM10: 50 · 75 · 155 · 235 µg/m³ y cuenta en la dominancia', () => {
+    assert.equal(nivelDe({ pm10: 50 }), 'Buena');
+    assert.equal(nivelDe({ pm10: 50.1 }), 'Aceptable');
+    assert.equal(nivelDe({ pm10: 160 }), 'Muy mala');
+    assert.equal(nivelDe({ pm10: 236 }), 'Extremadamente mala');
+    const r = aire({ pm25: 10, pm10: 160, co: 10 })!;
+    assert.equal(r.nivel.nombre, 'Muy mala');
+    assert.equal(r.principal, 'pm10');
+  });
+
+  test('empates: PM2.5 gana a PM10 y PM10 gana a CO (igual que el firmware)', () => {
+    assert.equal(aire({ pm25: 20, pm10: 60, co: 6 })!.principal, 'pm25');
+    assert.equal(aire({ pm10: 60, co: 6 })!.principal, 'pm10');
+  });
+
+  test('se respeta el contaminante dominante que reporta el ESP32', () => {
+    // El semáforo dice Muy mala por PM10; la alerta no debe hablar de CO.
+    const r = aire({ pm25: 10, co: 6, nivelReportado: 3, dominante: 'PM10' })!;
+    assert.equal(r.nivel.nombre, 'Muy mala');
+    assert.equal(r.principal, 'pm10');
+    // Sin el nivel del ESP32 (p. ej. en la simulación) se calcula en la app.
+    assert.equal(aire({ pm25: 68, co: 1, dominante: 'CO' })!.principal, 'pm25');
+  });
+
   test('sin PM2.5 ni CO no hay nivel; se respeta el nivel del ESP32', () => {
     assert.equal(aire({ temperatura: 24, co2: 900 }), null);
     assert.equal(nivelDe({ nivelReportado: 3 }), 'Muy mala');
@@ -63,6 +87,25 @@ describe('NOM-172 (igual que el semáforo del ESP32)', () => {
 });
 
 describe('JSON del ESP32', () => {
+  test('un sensor sin lectura llega como null y se muestra como desconocido, no como 0', () => {
+    // DHT22 fallando y PMS5003 sin trama: el firmware manda null.
+    const l = lecturaDesdeJson(
+      JSON.parse(
+        '{"pm1":null,"pm25":null,"pm10":null,"co":6.20,"temp":null,"hum":null,' +
+          '"nivel_pm25":null,"nivel_pm10":null,"nivel_co":1,"nivel_general":1,' +
+          '"dominante":"CO","estado":"ACEPTABLE"}',
+      ),
+    );
+    assert.equal(l.temperatura, undefined);
+    assert.equal(l.humedad, undefined);
+    assert.equal(l.pm25, undefined);
+    assert.equal(l.nivel_pm25, undefined);
+    assert.equal(l.co, 6.2);
+    const r = evaluarAire(l)!;
+    assert.equal(r.nivel.nombre, 'Aceptable');
+    assert.equal(r.principal, 'co');
+  });
+
   test('acepta alias, texto y objetos anidados; descarta absurdos', () => {
     const l = lecturaDesdeJson({
       temperature: '24.5',
