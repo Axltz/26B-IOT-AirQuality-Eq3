@@ -1,4 +1,10 @@
+// Limitaciones del CO (MQ-7): el módulo mantiene el calentador siempre a 5 V,
+// pero el datasheet pide ciclos de 5 V / 1.4 V, así que las ppm son solo una
+// aproximación. El MQ-7 también reacciona al H2 y al alcohol. Para medir en
+// serio hay que calibrarlo contra un medidor de CO de referencia.
+
 #include <Arduino.h>
+#include <Preferences.h>
 #include <DHT.h>
 #include <WiFi.h>
 #include <DNSServer.h>
@@ -50,15 +56,53 @@ PubSubClient client(espClient);
 // Configuración de los pines físicos del ESP32 para cada componente
 #define DHTPIN 4        // Pin G4 conectado al sensor DHT22
 #define DHTTYPE DHT22   // Especifica el modelo exacto del sensor de temperatura
-#define PIN_MQ7 34      // Pin analógico G34 para la lectura del gas CO
+#define PIN_MQ7 36      // Pin analógico G36 (VP, ADC1) para la lectura del gas CO
 #define LED_VERDE 12    // Pin G12 para el indicador de calidad buena
 #define LED_AMARILLO 14 // Pin G14 para el indicador de calidad aceptable
 #define LED_ROJO 27     // Pin G27 para el indicador de alerta o riesgo
 #define RXD2 16         // Pin G16 RX del ESP32 para el puerto serie UART2
 #define TXD2 17         // Pin G17 TX del ESP32 para el puerto serie UART2
+#define PIN_BOOT 0      // Botón BOOT (G0, activo en bajo) para calibrar el MQ-7
+
+// Alimentación del módulo MQ-7 (calentador y circuito de medición)
+const float MQ7_VC = 5.0;
+// Divisor entre AO y G36: R1 = 10 kΩ en serie y R2 = 20 kΩ a GND.
+// V_AO = V_adc * (10k + 20k) / 20k = V_adc * 1.5
+const float MQ7_FACTOR_DIVISOR = 1.5;
+// Resistencia de carga RL del módulo en kΩ. Revisa la resistencia SMD junto
+// al sensor: "102" = 1 kΩ, "103" = 10 kΩ
+const float MQ7_RL_KOHM = 10.0;
+// R0 = Rs del sensor en 100 ppm de CO (referencia de la curva del datasheet).
+// Valor típico mientras no se calibre: el datasheet da de 2 a 20 kΩ.
+const float MQ7_R0_DEFAULT_KOHM = 10.0;
+// Curva de CO del datasheet del MQ-7: ppm = A * (Rs/R0)^B, obtenida ajustando
+// una recta a la gráfica log-log de sensibilidad
+const float MQ7_CURVA_A = 99.042;
+const float MQ7_CURVA_B = -1.518;
+// Rs/R0 en aire limpio según la curva del datasheet (para calibrar R0)
+const float MQ7_RATIO_AIRE_LIMPIO = 27.0;
+// Rango que se reporta; fuera de él la curva ya no es confiable
+const float MQ7_PPM_MAX = 2000.0;
+// Margen en volts: V_AO casi en 0 o casi en VC no da un Rs válido
+const float MQ7_MARGEN_V = 0.05;
+// Lecturas del ADC que se promedian en cada medición
+const int MQ7_MUESTRAS_ADC = 32;
+// Tiempo de calentamiento tras encender: mientras tanto el CO no se reporta
+const unsigned long MQ7_CALENTAMIENTO_MS = 180000;
+// Duración de la medición de Rs en aire limpio al calibrar
+const unsigned long MQ7_CALIBRACION_MS = 30000;
+// Ventana al arrancar para presionar BOOT y pedir la calibración
+const unsigned long MQ7_VENTANA_BOOT_MS = 3000;
 
 // Inicializa el objeto sensor DHT
 DHT dht(DHTPIN, DHTTYPE);
+
+// R0 del MQ-7 guardada en la memoria no volátil (namespace "mq7", clave "r0")
+Preferences preferencias;
+float r0Mq7 = MQ7_R0_DEFAULT_KOHM;
+bool r0Calibrada = false;
+// Se pidió calibrar (BOOT al arrancar o 'c' por el Monitor Serie)
+bool calibracionPendiente = false;
 
 // Configura el portal cautivo de respaldo para la conexión inalámbrica
 void setup_wifi_manager()
@@ -178,6 +222,149 @@ int clasificar(float valor, float buena, float aceptable, float mala, float muyM
   return 4;
 }
 
+// Lee el voltaje en la salida AO del MQ-7 (antes del divisor), en volts,
+// promediando varias lecturas del ADC calibrado de fábrica
+float leer_voltaje_mq7()
+{
+  int32_t sumaMv = 0;
+  for (int i = 0; i < MQ7_MUESTRAS_ADC; i++)
+  {
+    sumaMv += analogReadMilliVolts(PIN_MQ7);
+  }
+  float vAdc = (sumaMv / (float)MQ7_MUESTRAS_ADC) / 1000.0;
+  return vAdc * MQ7_FACTOR_DIVISOR;
+}
+
+// Calcula la resistencia del sensor Rs (kΩ) con el divisor RL del módulo.
+// Devuelve NaN si V_AO está casi en 0 o casi en VC (no hay dato válido).
+float calcular_rs_mq7(float vAO)
+{
+  if (vAO < MQ7_MARGEN_V || vAO > MQ7_VC - MQ7_MARGEN_V)
+    return NAN;
+  return MQ7_RL_KOHM * (MQ7_VC - vAO) / vAO;
+}
+
+// Convierte Rs a ppm de CO con la curva del datasheet, limitado a 0-2000 ppm
+float calcular_ppm_co(float rs)
+{
+  if (isnan(rs) || r0Mq7 <= 0.0)
+    return NAN;
+  float ppm = MQ7_CURVA_A * powf(rs / r0Mq7, MQ7_CURVA_B);
+  return constrain(ppm, 0.0f, MQ7_PPM_MAX);
+}
+
+// Carga R0 de la memoria no volátil; si no hay, usa el valor por defecto
+void cargar_r0_mq7()
+{
+  preferencias.begin("mq7", false);
+  float r0Guardada = preferencias.getFloat("r0", NAN);
+  preferencias.end();
+
+  if (!isnan(r0Guardada) && r0Guardada > 0.0)
+  {
+    r0Mq7 = r0Guardada;
+    r0Calibrada = true;
+    Serial.printf("[MQ-7] R0 cargada de memoria: %.2f kOhm\n", r0Mq7);
+  }
+  else
+  {
+    r0Mq7 = MQ7_R0_DEFAULT_KOHM;
+    r0Calibrada = false;
+    Serial.printf("[MQ-7] AVISO: no hay R0 calibrada, se usa el valor por defecto %.2f kOhm.\n", r0Mq7);
+    Serial.println("[MQ-7] Las ppm de CO pueden estar muy desviadas hasta calibrar en aire limpio.");
+  }
+}
+
+// Mide Rs en aire limpio durante MQ7_CALIBRACION_MS y guarda R0 = Rs / 27.
+// Bloquea el ciclo, pero solo se ejecuta cuando el usuario lo pide.
+void calibrar_mq7()
+{
+  Serial.println("[MQ-7] Calibrando en aire limpio: midiendo Rs durante 30 s...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Calibrando MQ-7");
+
+  float sumaRs = 0.0;
+  int validas = 0;
+  int totales = 0;
+  unsigned long inicio = millis();
+  while (millis() - inicio < MQ7_CALIBRACION_MS)
+  {
+    float rs = calcular_rs_mq7(leer_voltaje_mq7());
+    totales++;
+    if (!isnan(rs))
+    {
+      sumaRs += rs;
+      validas++;
+    }
+
+    // Cuenta regresiva en la segunda línea de la LCD
+    unsigned long restante = (MQ7_CALIBRACION_MS - (millis() - inicio)) / 1000;
+    lcd.setCursor(0, 1);
+    lcd.print("Aire limpio " + String(restante) + "s ");
+    delay(100);
+  }
+
+  // Si la mayoría de las lecturas no fueron válidas el sensor no está bien conectado
+  if (validas == 0 || validas < totales / 2)
+  {
+    Serial.printf("[MQ-7] ERROR: calibración cancelada, solo %d de %d lecturas válidas. Revisa el sensor.\n",
+                  validas, totales);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Error calibrando");
+    lcd.setCursor(0, 1);
+    lcd.print("Revisa el MQ-7");
+    delay(3000);
+    return;
+  }
+
+  float rsAire = sumaRs / validas;
+  r0Mq7 = rsAire / MQ7_RATIO_AIRE_LIMPIO;
+  r0Calibrada = true;
+
+  preferencias.begin("mq7", false);
+  preferencias.putFloat("r0", r0Mq7);
+  preferencias.end();
+
+  Serial.printf("[MQ-7] Calibrado R0=%.2f kOhm (Rs en aire limpio = %.2f kOhm, %d lecturas)\n",
+                r0Mq7, rsAire, validas);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Calibrado R0=");
+  lcd.setCursor(0, 1);
+  lcd.print(String(r0Mq7, 2) + " kOhm");
+  delay(3000);
+}
+
+// Revisa si se pidió calibrar ('c' por el Monitor Serie) y la ejecuta en cuanto
+// termina el calentamiento; mientras tanto el ciclo sigue sin bloquearse
+void revisar_calibracion_mq7()
+{
+  while (Serial.available() > 0)
+  {
+    char letra = Serial.read();
+    if (letra == 'c' || letra == 'C')
+    {
+      calibracionPendiente = true;
+      Serial.println("[MQ-7] Calibración solicitada por el Monitor Serie.");
+    }
+  }
+
+  if (!calibracionPendiente)
+    return;
+
+  if (millis() < MQ7_CALENTAMIENTO_MS)
+  {
+    Serial.printf("[MQ-7] Calibración pendiente: inicia al terminar el calentamiento (faltan %lu s).\n",
+                  (MQ7_CALENTAMIENTO_MS - millis()) / 1000);
+    return;
+  }
+
+  calibracionPendiente = false;
+  calibrar_mq7();
+}
+
 // Inserta una fila en la tabla `lecturas` de Supabase (Data API por HTTPS).
 // La hora la pone el servidor, así que el ESP32 no necesita reloj (NTP).
 void guardar_en_supabase(float pm1, float pm25, float pm10, float co, float temp, float hum,
@@ -238,6 +425,35 @@ void setup()
   pinMode(LED_AMARILLO, OUTPUT);
   pinMode(LED_ROJO, OUTPUT);
   pinMode(PIN_MQ7, INPUT);
+  pinMode(PIN_BOOT, INPUT_PULLUP);
+
+  // Carga la R0 del MQ-7 guardada en la memoria no volátil
+  cargar_r0_mq7();
+
+  // Ventana breve para pedir la calibración del MQ-7 con el botón BOOT.
+  // BOOT se presiona después de que arranca el programa: si se mantiene al
+  // soltar EN/RESET, el ESP32 entra en modo de programación.
+  lcd.setCursor(0, 0);
+  lcd.print("BOOT = calibrar");
+  lcd.setCursor(0, 1);
+  lcd.print("CO en aire limp.");
+  unsigned long inicioVentana = millis();
+  while (millis() - inicioVentana < MQ7_VENTANA_BOOT_MS)
+  {
+    if (digitalRead(PIN_BOOT) == LOW)
+    {
+      calibracionPendiente = true;
+      Serial.println("[MQ-7] Calibración solicitada con el botón BOOT.");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Calibrara MQ-7");
+      lcd.setCursor(0, 1);
+      lcd.print("tras calentar");
+      delay(1500);
+      break;
+    }
+    delay(10);
+  }
 
   setup_wifi_manager();
   client.setServer(mqtt_server, mqtt_port);
@@ -255,9 +471,16 @@ void loop()
   float humedad = dht.readHumidity();
   float temperatura = dht.readTemperature();
 
-  // Lee el valor analógico del sensor MQ-7 y lo convierte a unidades PPM
-  int rawGas = analogRead(PIN_MQ7);
-  float ppmCO = (rawGas / 4095.0) * 25.0;
+  // Atiende una calibración pedida (solo bloquea cuando el usuario la pide)
+  revisar_calibracion_mq7();
+
+  // Lee el MQ-7 y estima el CO en ppm con la curva del datasheet.
+  // Durante el calentamiento o sin lectura válida el CO es NaN (null en el JSON).
+  float vAoMq7 = leer_voltaje_mq7();
+  float rsMq7 = calcular_rs_mq7(vAoMq7);
+  float ratioMq7 = isnan(rsMq7) ? NAN : rsMq7 / r0Mq7;
+  bool mq7Caliente = millis() >= MQ7_CALENTAMIENTO_MS;
+  float ppmCO = mq7Caliente ? calcular_ppm_co(rsMq7) : NAN;
 
   // Variables estáticas para capturar la trama serial real del PMS5003
   static float pm1 = 0.0;
@@ -416,7 +639,7 @@ void loop()
     }
     else if (contaminanteDominante == "CO")
     {
-      linea2 += " " + String(ppmCO, 1) + "p";
+      linea2 += " " + textoValor(ppmCO, 1) + "p";
     }
     else if (contaminanteDominante == "PM10")
     {
@@ -426,7 +649,7 @@ void loop()
   else
   {
     linea1 = "T:" + tempStr + "C H:" + humStr + "%";
-    linea2 = "P2.5:" + pm25Str + " C:" + String(ppmCO, 1);
+    linea2 = "P2.5:" + pm25Str + " C:" + textoValor(ppmCO, 1);
   }
 
   while (linea1.length() < 16)
@@ -446,9 +669,18 @@ void loop()
   // Muestra las trazas de depuración detalladas en el Monitor Serial
   Serial.println("\n------------------------------------------------");
   Serial.printf("Temp: %s °C | Hum: %s %%\n", tempStr.c_str(), humStr.c_str());
-  Serial.printf("PM1: %s | PM2.5: %s | PM10: %s ug/m3 | CO: %.2f PPM\n",
+  Serial.printf("PM1: %s | PM2.5: %s | PM10: %s ug/m3 | CO: %s PPM\n",
                 textoValor(pm1_compensado, 1).c_str(), textoValor(pm25_compensado, 1).c_str(),
-                textoValor(pm10_compensado, 1).c_str(), ppmCO);
+                textoValor(pm10_compensado, 1).c_str(), textoValor(ppmCO, 2).c_str());
+  // Datos intermedios del MQ-7 para depurar la estimación de CO
+  Serial.printf("MQ-7: V_AO: %.3f V | Rs: %s kOhm | Rs/R0: %s (R0=%.2f kOhm%s) | CO: %s ppm",
+                vAoMq7, textoValor(rsMq7, 2).c_str(), textoValor(ratioMq7, 3).c_str(),
+                r0Mq7, r0Calibrada ? "" : ", por defecto", textoValor(ppmCO, 2).c_str());
+  if (!mq7Caliente)
+  {
+    Serial.printf(" [calentando, faltan %lu s]", (MQ7_CALENTAMIENTO_MS - millis()) / 1000);
+  }
+  Serial.println();
   Serial.printf("Dominante: %s (Nivel %d) | Estado: [%s]\n", contaminanteDominante.c_str(), nivelDominante, estadoCalidad.c_str());
   Serial.print(publicado ? "JSON Enviado: " : "JSON sin enviar (sin conexión MQTT): ");
   Serial.println(payload);
